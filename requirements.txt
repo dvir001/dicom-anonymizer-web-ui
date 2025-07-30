@@ -1,0 +1,4 @@
+flask>=2.0.0
+werkzeug>=2.0.0
+pydicom>=2.0.0
+tqdm>=4.50.0

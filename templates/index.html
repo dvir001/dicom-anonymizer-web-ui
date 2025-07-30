@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DICOM Anonymizer</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f0f0f0; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
+        .upload-area { border: 2px dashed #ccc; padding: 40px; text-align: center; margin: 20px 0; }
+        .btn { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+        .btn:hover { background: #0056b3; }
+        .hidden { display: none; }
+        .file-item { padding: 10px; background: #f8f9fa; margin: 5px 0; border-radius: 5px; }
+        .status { padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>DICOM Anonymizer</h1>
+        
+        <div class="upload-area" id="uploadArea">
+            <h3>Upload DICOM Files</h3>
+            <p>Click to select files or drag and drop</p>
+            <input type="file" id="fileInput" multiple accept=".dcm,.dicom,.ima,.zip" style="display: none;">
+        </div>
+
+        <div id="fileList" class="hidden"></div>
+        <div id="uploadStatus" class="hidden"></div>
+
+        <div id="optionsCard" class="hidden">
+            <h3>Options</h3>
+            <label>
+                <input type="checkbox" id="keepPrivateTags"> Keep private DICOM tags
+            </label>
+            <br><br>
+            <button id="anonymizeBtn" class="btn" onclick="startAnonymization()">Start Anonymization</button>
+        </div>
+
+        <div id="resultsCard" class="hidden">
+            <h3>Anonymization Complete</h3>
+            <div id="resultsStatus"></div>
+            <button id="downloadBtn" class="btn">Download Files</button>
+            <button class="btn" onclick="startOver()">Start Over</button>
+        </div>
+    </div>
+
+    <script>
+        let currentSession = null;
+        let currentOutputSession = null;
+
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const uploadStatus = document.getElementById('uploadStatus');
+        const optionsCard = document.getElementById('optionsCard');
+        const resultsCard = document.getElementById('resultsCard');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', handleFileSelect);
+
+        function handleFileSelect(e) {
+            const files = Array.from(e.target.files);
+            uploadFiles(files);
+        }
+
+        async function uploadFiles(files) {
+            if (files.length === 0) return;
+
+            const formData = new FormData();
+            files.forEach(file => formData.append('files', file));
+
+            showStatus('Uploading files...', 'info');
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    currentSession = result.session_id;
+                    displayUploadedFiles(result.files);
+                    showStatus(`Successfully uploaded ${result.files.length} files (${result.dicom_count} DICOM files)`, 'success');
+                    optionsCard.classList.remove('hidden');
+                } else {
+                    showStatus(`Upload failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Upload failed: ${error.message}`, 'error');
+            }
+        }
+
+        function displayUploadedFiles(files) {
+            fileList.innerHTML = '<h4>Uploaded Files:</h4>';
+            files.forEach(file => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `${file.name} - ${file.is_dicom ? 'DICOM' : 'Not DICOM'}`;
+                fileList.appendChild(fileItem);
+            });
+            fileList.classList.remove('hidden');
+        }
+
+        async function startAnonymization() {
+            if (!currentSession) {
+                showStatus('No files uploaded', 'error');
+                return;
+            }
+
+            const anonymizeBtn = document.getElementById('anonymizeBtn');
+            anonymizeBtn.disabled = true;
+            anonymizeBtn.textContent = 'Anonymizing...';
+
+            const keepPrivateTags = document.getElementById('keepPrivateTags').checked;
+
+            showStatus('Anonymizing DICOM files...', 'info');
+
+            try {
+                const response = await fetch('/anonymize', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        session_id: currentSession,
+                        keep_private_tags: keepPrivateTags,
+                        custom_rules: {}
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    currentOutputSession = result.output_session_id;
+                    showAnonymizationResults(result);
+                } else {
+                    showStatus(`Anonymization failed: ${result.error}`, 'error');
+                    anonymizeBtn.disabled = false;
+                    anonymizeBtn.textContent = 'Start Anonymization';
+                }
+            } catch (error) {
+                showStatus(`Anonymization failed: ${error.message}`, 'error');
+                anonymizeBtn.disabled = false;
+                anonymizeBtn.textContent = 'Start Anonymization';
+            }
+        }
+
+        function showAnonymizationResults(result) {
+            const resultsStatus = document.getElementById('resultsStatus');
+            resultsStatus.innerHTML = `
+                <div class="status success">
+                    Successfully anonymized ${result.count} DICOM files
+                </div>
+            `;
+
+            const downloadBtn = document.getElementById('downloadBtn');
+            downloadBtn.onclick = () => downloadAnonymizedFiles();
+
+            optionsCard.classList.add('hidden');
+            resultsCard.classList.remove('hidden');
+        }
+
+        function downloadAnonymizedFiles() {
+            if (currentOutputSession) {
+                window.location.href = `/download/${currentOutputSession}`;
+                setTimeout(() => {
+                    fetch(`/cleanup/${currentOutputSession}`);
+                    fetch(`/cleanup/${currentSession}`);
+                }, 2000);
+            }
+        }
+
+        function startOver() {
+            if (currentOutputSession) {
+                fetch(`/cleanup/${currentOutputSession}`);
+            }
+            if (currentSession) {
+                fetch(`/cleanup/${currentSession}`);
+            }
+
+            currentSession = null;
+            currentOutputSession = null;
+            fileInput.value = '';
+            fileList.classList.add('hidden');
+            optionsCard.classList.add('hidden');
+            resultsCard.classList.add('hidden');
+            uploadStatus.classList.add('hidden');
+        }
+
+        function showStatus(message, type) {
+            uploadStatus.className = `status ${type}`;
+            uploadStatus.textContent = message;
+            uploadStatus.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>

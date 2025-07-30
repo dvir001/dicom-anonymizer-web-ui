@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  dicom-anonymizer-web:
+    build: .
+    container_name: dicom-anonymizer-web
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount directories for persistent storage (optional)
+      - ./temp_uploads:/app/temp_uploads
+      - ./temp_outputs:/app/temp_outputs
+    environment:
+      - FLASK_ENV=production
+      - FLASK_APP=app.py
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - dicom-network
+
+networks:
+  dicom-network:
+    driver: bridge
+
+volumes:
+  uploads_data:
+  outputs_data:

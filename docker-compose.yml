@@ -1,13 +1,13 @@
 services:
   dicom-anonymizer-web:
     build: .
-    container_name: Dicom-Anonymizer
+    container_name: dicom-anonymizer
     ports:
       - "5000:5000"
     volumes:
       # Mount directories for persistent storage (optional)
-      - ./temp_uploads:/app/temp_uploads
-      - ./temp_outputs:/app/temp_outputs
+      - uploads_data:/app/temp_uploads:rw
+      - outputs_data:/app/temp_outputs:rw
     environment:
       - FLASK_ENV=production
       - FLASK_APP=app.py
@@ -23,4 +23,6 @@ services:
 
 volumes:
   uploads_data:
+    driver: local
   outputs_data:
+    driver: local

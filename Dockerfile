@@ -22,12 +22,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the application code
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p temp_uploads temp_outputs
+# Create a non-root user first
+RUN adduser --disabled-password --gecos '' appuser
 
-# Create a non-root user
-RUN adduser --disabled-password --gecos '' appuser && \
-    chown -R appuser:appuser /app
+# Create necessary directories with proper ownership and permissions
+RUN mkdir -p temp_uploads temp_outputs && \
+    chown -R appuser:appuser /app && \
+    chmod -R 755 /app
+
+# Switch to non-root user
 USER appuser
 
 # Expose port

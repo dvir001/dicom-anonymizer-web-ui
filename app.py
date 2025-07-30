@@ -17,8 +17,17 @@ app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max file size
 # Create temp directories for uploads and outputs
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'temp_uploads')
 OUTPUT_FOLDER = os.path.join(os.getcwd(), 'temp_outputs')
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+try:
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    print(f"? Created directories: {UPLOAD_FOLDER}, {OUTPUT_FOLDER}")
+except PermissionError as e:
+    print(f"? Permission error creating directories: {e}")
+    # Fallback to system temp directory
+    UPLOAD_FOLDER = tempfile.mkdtemp(prefix='dicom_uploads_')
+    OUTPUT_FOLDER = tempfile.mkdtemp(prefix='dicom_outputs_')
+    print(f"?? Using fallback directories: {UPLOAD_FOLDER}, {OUTPUT_FOLDER}")
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['OUTPUT_FOLDER'] = OUTPUT_FOLDER
@@ -33,6 +42,18 @@ def is_dicom_file(filepath):
     try:
         return isDICOMType(filepath)
     except:
+        return False
+
+def safe_makedirs(path):
+    """Safely create directories with error handling"""
+    try:
+        os.makedirs(path, exist_ok=True)
+        return True
+    except PermissionError as e:
+        print(f"? Permission error creating directory {path}: {e}")
+        return False
+    except Exception as e:
+        print(f"? Error creating directory {path}: {e}")
         return False
 
 @app.route('/')
@@ -51,7 +72,10 @@ def upload_files():
     uploaded_files = []
     session_id = os.urandom(16).hex()
     session_dir = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
-    os.makedirs(session_dir, exist_ok=True)
+    
+    # Use safe directory creation
+    if not safe_makedirs(session_dir):
+        return jsonify({'error': 'Failed to create upload directory. Permission denied.'}), 500
     
     try:
         for file in files:
@@ -63,7 +87,8 @@ def upload_files():
                 # Handle ZIP files
                 if filename.lower().endswith('.zip'):
                     extract_dir = os.path.join(session_dir, 'extracted')
-                    os.makedirs(extract_dir, exist_ok=True)
+                    if not safe_makedirs(extract_dir):
+                        return jsonify({'error': 'Failed to create extraction directory'}), 500
                     
                     with zipfile.ZipFile(filepath, 'r') as zip_ref:
                         zip_ref.extractall(extract_dir)
@@ -110,7 +135,10 @@ def anonymize_files():
     input_dir = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
     output_session_id = os.urandom(16).hex()
     output_session_dir = os.path.join(app.config['OUTPUT_FOLDER'], output_session_id)
-    os.makedirs(output_session_dir, exist_ok=True)
+    
+    # Use safe directory creation
+    if not safe_makedirs(output_session_dir):
+        return jsonify({'error': 'Failed to create output directory. Permission denied.'}), 500
     
     if not os.path.exists(input_dir):
         return jsonify({'error': 'Session not found'}), 404
@@ -152,7 +180,9 @@ def anonymize_files():
                     output_file = os.path.join(output_session_dir, rel_path)
                     
                     # Ensure output directory exists
-                    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+                    output_dir = os.path.dirname(output_file)
+                    if not safe_makedirs(output_dir):
+                        return jsonify({'error': f'Failed to create output subdirectory: {output_dir}'}), 500
                     
                     # Anonymize the file
                     anonymize_dicom_file(

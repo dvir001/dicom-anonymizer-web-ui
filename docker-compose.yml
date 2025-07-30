@@ -1,9 +1,7 @@
-version: '3.8'
-
 services:
   dicom-anonymizer-web:
     build: .
-    container_name: dicom-anonymizer-web
+    container_name: Dicom Anonymizer
     ports:
       - "5000:5000"
     volumes:
@@ -21,11 +19,7 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - dicom-network
-
-networks:
-  dicom-network:
-    driver: bridge
+      - default
 
 volumes:
   uploads_data:

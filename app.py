@@ -15,7 +15,7 @@ import traceback
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'dicom-anonymizer-secret-key-2024'
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB max file size
 
 # Create temp directories for uploads and outputs
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'temp_uploads')
@@ -374,7 +374,7 @@ def status():
 
 @app.errorhandler(413)
 def too_large(e):
-    return jsonify({'error': 'File too large. Maximum size is 500MB.'}), 413
+    return jsonify({'error': 'File too large. Maximum size is 1GB.'}), 413
 
 if __name__ == '__main__':
     print("Starting DICOM Anonymizer Web Application...")

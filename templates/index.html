@@ -1,72 +1,439 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>DICOM Anonymizer</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DICOM Anonymizer - Web Interface</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px; background: #f0f0f0; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
-        .upload-area { border: 2px dashed #ccc; padding: 40px; text-align: center; margin: 20px 0; cursor: pointer; }
-        .upload-area:hover { border-color: #007bff; background: #f8f9ff; }
-        .btn { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
-        .btn:hover { background: #0056b3; }
-        .btn:disabled { background: #ccc; cursor: not-allowed; }
-        .hidden { display: none; }
-        .file-item { padding: 10px; background: #f8f9fa; margin: 5px 0; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; }
-        .file-item.dicom { border-left: 4px solid #28a745; }
-        .file-item.non-dicom { border-left: 4px solid #ffc107; }
-        .status { padding: 15px; margin: 10px 0; border-radius: 5px; }
-        .status.success { background: #d4edda; color: #155724; }
-        .status.error { background: #f8d7da; color: #721c24; }
-        .status.info { background: #d1ecf1; color: #0c5460; }
-        .status.warning { background: #fff3cd; color: #856404; }
-        .info-box { background: #e3f2fd; border: 1px solid #bbdefb; border-radius: 5px; padding: 15px; margin: 15px 0; }
-        .info-box h4 { margin-top: 0; color: #1976d2; }
-        .cleanup-info { font-size: 0.9em; color: #666; margin-top: 10px; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .info-box {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+
+        .info-box h4 {
+            color: #495057;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+
+        .info-box ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .info-box li {
+            margin-bottom: 8px;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        .info-box li:before {
+            content: "•";
+            color: #007bff;
+            font-weight: bold;
+            position: absolute;
+            left: 0;
+        }
+
+        .upload-area {
+            border: 3px dashed #ccc;
+            border-radius: 15px;
+            padding: 60px 20px;
+            text-align: center;
+            background: #fafafa;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin-bottom: 30px;
+        }
+
+        .upload-area:hover {
+            border-color: #007bff;
+            background: #f0f7ff;
+            transform: translateY(-2px);
+        }
+
+        .upload-area.drag-over {
+            border-color: #28a745;
+            background: #f0fff0;
+            transform: scale(1.02);
+        }
+
+        .upload-area h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: #495057;
+        }
+
+        .upload-area p {
+            color: #6c757d;
+            margin-bottom: 10px;
+        }
+
+        .upload-icon {
+            width: 60px;
+            height: 60px;
+            background: #007bff;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+            color: white;
+            font-size: 24px;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            margin: 5px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,123,255,0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        }
+
+        .btn-success:hover {
+            box-shadow: 0 5px 15px rgba(40,167,69,0.3);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .file-list {
+            margin: 20px 0;
+        }
+
+        .file-list h4 {
+            color: #495057;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+
+        .file-item {
+            padding: 15px;
+            background: #f8f9fa;
+            margin: 8px 0;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 4px solid #dee2e6;
+            transition: all 0.2s ease;
+        }
+
+        .file-item:hover {
+            background: #f1f3f4;
+        }
+
+        .file-item.dicom {
+            border-left-color: #28a745;
+            background: #f8fff9;
+        }
+
+        .file-item.non-dicom {
+            border-left-color: #ffc107;
+            background: #fffdf0;
+        }
+
+        .file-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 10px;
+            font-size: 12px;
+            color: white;
+        }
+
+        .file-icon.dicom {
+            background: #28a745;
+        }
+
+        .file-icon.document {
+            background: #6c757d;
+        }
+
+        .badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .badge.success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge.warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status {
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: 500;
+            border-left: 4px solid;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border-left-color: #28a745;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left-color: #dc3545;
+        }
+
+        .status.info {
+            background: #cce7ff;
+            color: #004085;
+            border-left-color: #007bff;
+        }
+
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border-left-color: #ffc107;
+        }
+
+        .options-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 25px;
+            margin: 20px 0;
+        }
+
+        .options-section h3 {
+            color: #495057;
+            margin-bottom: 20px;
+            font-size: 1.2rem;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            margin-right: 10px;
+            transform: scale(1.2);
+        }
+
+        .checkbox-group label {
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .results-section {
+            background: #f8fff9;
+            border-radius: 10px;
+            padding: 25px;
+            margin: 20px 0;
+            border: 1px solid #c3e6cb;
+        }
+
+        .results-section h3 {
+            color: #155724;
+            margin-bottom: 20px;
+            font-size: 1.2rem;
+        }
+
+        .cleanup-info {
+            background: #e3f2fd;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 0.9em;
+            color: #1976d2;
+            border: 1px solid #bbdefb;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #e9ecef;
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #007bff, #0056b3);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            .header {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            .upload-area {
+                padding: 40px 15px;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>?? DICOM Anonymizer</h1>
-        
-        <div class="info-box">
-            <h4>?? File Upload Information</h4>
-            <ul>
-                <li><strong>All file types accepted</strong> - No extension required</li>
-                <li><strong>DICOM detection</strong> - Files are validated by content, not extension</li>
-                <li><strong>ZIP archives</strong> - Automatically extracted and processed</li>
-                <li><strong>Maximum size</strong> - 500MB per upload</li>
-                <li><strong>Auto-cleanup</strong> - Files automatically deleted after 24 hours</li>
-            </ul>
-        </div>
-        
-        <div class="upload-area" id="uploadArea">
-            <h3>?? Upload Files</h3>
-            <p>Click to select files or drag and drop</p>
-            <p><small>Supports DICOM files with or without extensions, and ZIP archives</small></p>
-            <input type="file" id="fileInput" multiple style="display: none;">
+        <div class="header">
+            <h1>DICOM Anonymizer</h1>
+            <p>Secure web-based DICOM file anonymization</p>
         </div>
 
-        <div id="fileList" class="hidden"></div>
-        <div id="uploadStatus" class="hidden"></div>
-
-        <div id="optionsCard" class="hidden">
-            <h3>?? Anonymization Options</h3>
-            <label>
-                <input type="checkbox" id="keepPrivateTags"> Keep private DICOM tags
-            </label>
-            <p><small>By default, private tags are removed for maximum anonymization</small></p>
-            <br>
-            <button id="anonymizeBtn" class="btn" onclick="startAnonymization()">?? Start Anonymization</button>
-        </div>
-
-        <div id="resultsCard" class="hidden">
-            <h3>? Anonymization Complete</h3>
-            <div id="resultsStatus"></div>
-            <button id="downloadBtn" class="btn">?? Download Anonymized Files</button>
-            <button class="btn" onclick="startOver()">?? Start Over</button>
+        <div class="content">
+            <div class="info-box">
+                <h4>File Upload Information</h4>
+                <ul>
+                    <li><strong>All file types accepted</strong> - No extension required</li>
+                    <li><strong>DICOM detection</strong> - Files are validated by content, not extension</li>
+                    <li><strong>ZIP archives</strong> - Automatically extracted and processed</li>
+                    <li><strong>Maximum size</strong> - 500MB per upload</li>
+                    <li><strong>Auto-cleanup</strong> - Files automatically deleted after 24 hours</li>
+                </ul>
+            </div>
             
-            <div class="cleanup-info">
-                <p><strong>Note:</strong> Files will be automatically deleted from the server after 24 hours for security.</p>
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">?</div>
+                <h3>Upload Files</h3>
+                <p>Click to select files or drag and drop them here</p>
+                <p><small>Supports DICOM files with or without extensions, and ZIP archives</small></p>
+                <input type="file" id="fileInput" multiple style="display: none;">
+            </div>
+
+            <div id="fileList" class="hidden"></div>
+            <div id="uploadStatus" class="hidden"></div>
+
+            <div id="optionsCard" class="hidden">
+                <div class="options-section">
+                    <h3>Anonymization Options</h3>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="keepPrivateTags">
+                        <label for="keepPrivateTags">Keep private DICOM tags</label>
+                    </div>
+                    <p><small>By default, private tags are removed for maximum anonymization</small></p>
+                    <div style="text-align: center; margin-top: 25px;">
+                        <button id="anonymizeBtn" class="btn btn-success" onclick="startAnonymization()">
+                            Start Anonymization
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="resultsCard" class="hidden">
+                <div class="results-section">
+                    <h3>Anonymization Complete</h3>
+                    <div id="resultsStatus"></div>
+                    <div style="text-align: center; margin-top: 25px;">
+                        <button id="downloadBtn" class="btn btn-success">
+                            Download Anonymized Files
+                        </button>
+                        <button class="btn btn-secondary" onclick="startOver()">
+                            Start Over
+                        </button>
+                    </div>
+                    
+                    <div class="cleanup-info">
+                        <strong>Note:</strong> Files will be automatically deleted from the server after 24 hours for security.
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -87,26 +454,42 @@
         uploadArea.addEventListener('dragover', handleDragOver);
         uploadArea.addEventListener('dragleave', handleDragLeave);
         uploadArea.addEventListener('drop', handleDrop);
+        uploadArea.addEventListener('dragenter', handleDragEnter);
         fileInput.addEventListener('change', handleFileSelect);
+
+        // Prevent default drag behaviors on the document
+        document.addEventListener('dragover', (e) => e.preventDefault());
+        document.addEventListener('drop', (e) => e.preventDefault());
+
+        function handleDragEnter(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
 
         function handleDragOver(e) {
             e.preventDefault();
-            uploadArea.style.borderColor = '#007bff';
-            uploadArea.style.backgroundColor = '#f8f9ff';
+            e.stopPropagation();
+            uploadArea.classList.add('drag-over');
         }
 
         function handleDragLeave(e) {
             e.preventDefault();
-            uploadArea.style.borderColor = '#ccc';
-            uploadArea.style.backgroundColor = '';
+            e.stopPropagation();
+            // Only remove the class if we're actually leaving the upload area
+            if (!uploadArea.contains(e.relatedTarget)) {
+                uploadArea.classList.remove('drag-over');
+            }
         }
 
         function handleDrop(e) {
             e.preventDefault();
-            uploadArea.style.borderColor = '#ccc';
-            uploadArea.style.backgroundColor = '';
+            e.stopPropagation();
+            uploadArea.classList.remove('drag-over');
+            
             const files = Array.from(e.dataTransfer.files);
-            uploadFiles(files);
+            if (files.length > 0) {
+                uploadFiles(files);
+            }
         }
 
         function handleFileSelect(e) {
@@ -120,7 +503,8 @@
             const formData = new FormData();
             files.forEach(file => formData.append('files', file));
 
-            showStatus('?? Uploading files...', 'info');
+            showStatus('Uploading files...', 'info');
+            showProgress(0);
 
             try {
                 const response = await fetch('/upload', {
@@ -135,58 +519,70 @@
                     displayUploadedFiles(result.files);
                     
                     if (result.dicom_count > 0) {
-                        showStatus(`? Successfully uploaded ${result.total_count} files (${result.dicom_count} DICOM files detected)`, 'success');
+                        showStatus(`Successfully uploaded ${result.total_count || result.files.length} files (${result.dicom_count} DICOM files detected)`, 'success');
                         optionsCard.classList.remove('hidden');
                     } else {
-                        showStatus(`?? Uploaded ${result.total_count} files, but no DICOM files were detected. Please check your files.`, 'warning');
+                        showStatus(`Uploaded ${result.total_count || result.files.length} files, but no DICOM files were detected. Please check your files.`, 'warning');
+                        optionsCard.classList.remove('hidden'); // Allow user to try anyway
                     }
+                    showProgress(100);
                 } else {
-                    showStatus(`? Upload failed: ${result.error}`, 'error');
+                    showStatus(`Upload failed: ${result.error}`, 'error');
+                    hideProgress();
                 }
             } catch (error) {
-                showStatus(`? Upload failed: ${error.message}`, 'error');
+                showStatus(`Upload failed: ${error.message}`, 'error');
+                hideProgress();
             }
         }
 
         function displayUploadedFiles(files) {
-            fileList.innerHTML = '<h4>?? Uploaded Files:</h4>';
-            
-            if (files.length === 0) {
-                fileList.innerHTML += '<p>No files uploaded.</p>';
+            if (!files || files.length === 0) {
+                fileList.innerHTML = '<p>No files uploaded.</p>';
                 return;
             }
 
+            let html = '<div class="file-list"><h4>Uploaded Files</h4>';
+            
             files.forEach(file => {
-                const fileItem = document.createElement('div');
-                fileItem.className = `file-item ${file.is_dicom ? 'dicom' : 'non-dicom'}`;
+                const fileName = file.name || 'Unknown file';
+                const isDicom = file.is_dicom;
+                const iconClass = isDicom ? 'dicom' : 'document';
+                const itemClass = isDicom ? 'dicom' : 'non-dicom';
+                const badgeClass = isDicom ? 'success' : 'warning';
+                const status = isDicom ? 'DICOM' : 'Not DICOM';
                 
-                const fileName = file.name;
-                const fileStatus = file.is_dicom ? '? DICOM' : '? Not DICOM';
-                const fileIcon = file.is_dicom ? '??' : '??';
-                
-                fileItem.innerHTML = `
-                    <span>${fileIcon} ${fileName}</span>
-                    <span class="badge">${fileStatus}</span>
+                html += `
+                    <div class="file-item ${itemClass}">
+                        <span>
+                            <span class="file-icon ${iconClass}">D</span>
+                            ${fileName}
+                        </span>
+                        <span class="badge ${badgeClass}">${status}</span>
+                    </div>
                 `;
-                fileList.appendChild(fileItem);
             });
             
+            html += '</div>';
+            fileList.innerHTML = html;
             fileList.classList.remove('hidden');
         }
 
         async function startAnonymization() {
             if (!currentSession) {
-                showStatus('? No files uploaded', 'error');
+                showStatus('No files uploaded', 'error');
                 return;
             }
 
             const anonymizeBtn = document.getElementById('anonymizeBtn');
+            const originalText = anonymizeBtn.textContent;
             anonymizeBtn.disabled = true;
-            anonymizeBtn.textContent = '? Anonymizing...';
+            anonymizeBtn.textContent = 'Anonymizing...';
 
             const keepPrivateTags = document.getElementById('keepPrivateTags').checked;
 
-            showStatus('?? Anonymizing DICOM files...', 'info');
+            showStatus('Anonymizing DICOM files...', 'info');
+            showProgress(0);
 
             try {
                 const response = await fetch('/anonymize', {
@@ -206,34 +602,45 @@
                 if (result.success) {
                     currentOutputSession = result.output_session_id;
                     showAnonymizationResults(result);
+                    showProgress(100);
                 } else {
-                    showStatus(`? Anonymization failed: ${result.error}`, 'error');
+                    showStatus(`Anonymization failed: ${result.error}`, 'error');
                     anonymizeBtn.disabled = false;
-                    anonymizeBtn.textContent = '?? Start Anonymization';
+                    anonymizeBtn.textContent = originalText;
+                    hideProgress();
                 }
             } catch (error) {
-                showStatus(`? Anonymization failed: ${error.message}`, 'error');
+                showStatus(`Anonymization failed: ${error.message}`, 'error');
                 anonymizeBtn.disabled = false;
-                anonymizeBtn.textContent = '?? Start Anonymization';
+                anonymizeBtn.textContent = originalText;
+                hideProgress();
             }
         }
 
         function showAnonymizationResults(result) {
-            const resultsStatus = document.getElementById('resultsStatus');
-            resultsStatus.innerHTML = `
+            let html = `
                 <div class="status success">
-                    ? Successfully anonymized ${result.count} DICOM files
-                </div>
-                <div class="file-list">
-                    <h4>?? Anonymized Files:</h4>
-                    ${result.files.map(file => `
-                        <div class="file-item dicom">
-                            <span>?? ${file.original}</span>
-                            <span>?? Anonymized</span>
-                        </div>
-                    `).join('')}
+                    Successfully anonymized ${result.count} DICOM files
                 </div>
             `;
+
+            if (result.files && result.files.length > 0) {
+                html += '<div class="file-list"><h4>Anonymized Files</h4>';
+                result.files.forEach(file => {
+                    html += `
+                        <div class="file-item dicom">
+                            <span>
+                                <span class="file-icon dicom">D</span>
+                                ${file.original}
+                            </span>
+                            <span class="badge success">Anonymized</span>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+
+            document.getElementById('resultsStatus').innerHTML = html;
 
             const downloadBtn = document.getElementById('downloadBtn');
             downloadBtn.onclick = () => downloadAnonymizedFiles();
@@ -270,17 +677,37 @@
             optionsCard.classList.add('hidden');
             resultsCard.classList.add('hidden');
             uploadStatus.classList.add('hidden');
+            hideProgress();
         }
 
         function showStatus(message, type) {
             uploadStatus.className = `status ${type}`;
-            uploadStatus.innerHTML = message;
+            uploadStatus.textContent = message;
             uploadStatus.classList.remove('hidden');
+        }
+
+        function showProgress(percent) {
+            let progressBar = document.querySelector('.progress-bar');
+            if (!progressBar) {
+                progressBar = document.createElement('div');
+                progressBar.className = 'progress-bar';
+                progressBar.innerHTML = '<div class="progress-fill"></div>';
+                uploadStatus.appendChild(progressBar);
+            }
+            const fill = progressBar.querySelector('.progress-fill');
+            fill.style.width = `${percent}%`;
+        }
+
+        function hideProgress() {
+            const progressBar = document.querySelector('.progress-bar');
+            if (progressBar) {
+                progressBar.remove();
+            }
         }
 
         // Show a welcome message on page load
         window.addEventListener('load', () => {
-            showStatus('?? Ready to upload files. No file extensions required - DICOM files are detected by content.', 'info');
+            showStatus('Ready to upload files. No file extensions required - DICOM files are detected by content.', 'info');
         });
     </script>
 </body>

@@ -2,6 +2,9 @@
 import os
 import tempfile
 import shutil
+import threading
+import time
+import datetime
 from flask import Flask, render_template, request, send_file, jsonify
 from werkzeug.utils import secure_filename
 import zipfile
@@ -32,10 +35,16 @@ except PermissionError as e:
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['OUTPUT_FOLDER'] = OUTPUT_FOLDER
 
-ALLOWED_EXTENSIONS = {'dcm', 'dicom', 'ima', 'zip'}
+# File tracking for automatic cleanup
+session_timestamps = {}
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    """
+    Allow all files regardless of extension.
+    We'll check if they're DICOM files using the content-based check.
+    """
+    # Allow all files - we'll check DICOM validity by content
+    return True
 
 def is_dicom_file(filepath):
     """Check if file is a DICOM file using the existing function"""
@@ -56,6 +65,58 @@ def safe_makedirs(path):
         print(f"? Error creating directory {path}: {e}")
         return False
 
+def cleanup_old_sessions():
+    """
+    Background task to clean up sessions older than 24 hours
+    """
+    while True:
+        try:
+            current_time = time.time()
+            sessions_to_remove = []
+            
+            for session_id, timestamp in session_timestamps.items():
+                # Check if session is older than 24 hours (86400 seconds)
+                if current_time - timestamp > 86400:
+                    sessions_to_remove.append(session_id)
+            
+            # Clean up old sessions
+            for session_id in sessions_to_remove:
+                try:
+                    # Clean up upload session
+                    upload_session = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
+                    if os.path.exists(upload_session):
+                        shutil.rmtree(upload_session)
+                        print(f"??? Cleaned up old upload session: {session_id}")
+                    
+                    # Clean up output session
+                    output_session = os.path.join(app.config['OUTPUT_FOLDER'], session_id)
+                    if os.path.exists(output_session):
+                        shutil.rmtree(output_session)
+                        print(f"??? Cleaned up old output session: {session_id}")
+                    
+                    # Clean up zip files
+                    zip_file = os.path.join(app.config['OUTPUT_FOLDER'], f'{session_id}_anonymized.zip')
+                    if os.path.exists(zip_file):
+                        os.remove(zip_file)
+                        print(f"??? Cleaned up old zip file: {session_id}")
+                    
+                    # Remove from tracking
+                    del session_timestamps[session_id]
+                    
+                except Exception as e:
+                    print(f"? Error cleaning up session {session_id}: {e}")
+            
+            # Sleep for 1 hour before next cleanup check
+            time.sleep(3600)
+            
+        except Exception as e:
+            print(f"? Error in cleanup thread: {e}")
+            time.sleep(3600)  # Continue checking even if there's an error
+
+# Start the cleanup thread
+cleanup_thread = threading.Thread(target=cleanup_old_sessions, daemon=True)
+cleanup_thread.start()
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -73,19 +134,29 @@ def upload_files():
     session_id = os.urandom(16).hex()
     session_dir = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
     
+    # Track session timestamp for cleanup
+    session_timestamps[session_id] = time.time()
+    
     # Use safe directory creation
     if not safe_makedirs(session_dir):
         return jsonify({'error': 'Failed to create upload directory. Permission denied.'}), 500
     
     try:
         for file in files:
-            if file and allowed_file(file.filename):
-                filename = secure_filename(file.filename)
+            if file:  # Accept all files regardless of extension
+                filename = secure_filename(file.filename) if file.filename else f"unnamed_file_{len(uploaded_files)}"
                 filepath = os.path.join(session_dir, filename)
                 file.save(filepath)
                 
-                # Handle ZIP files
-                if filename.lower().endswith('.zip'):
+                # Handle ZIP files (check by content, not just extension)
+                is_zip = False
+                try:
+                    with zipfile.ZipFile(filepath, 'r') as test_zip:
+                        is_zip = True
+                except:
+                    is_zip = False
+                
+                if is_zip:
                     extract_dir = os.path.join(session_dir, 'extracted')
                     if not safe_makedirs(extract_dir):
                         return jsonify({'error': 'Failed to create extraction directory'}), 500
@@ -103,8 +174,15 @@ def upload_files():
                                     'path': full_path,
                                     'is_dicom': True
                                 })
+                            else:
+                                # Include non-DICOM files from ZIP for transparency
+                                uploaded_files.append({
+                                    'name': zip_file,
+                                    'path': full_path,
+                                    'is_dicom': False
+                                })
                 else:
-                    # Check if it's a DICOM file
+                    # Check if it's a DICOM file (works for files with or without extensions)
                     is_dicom = is_dicom_file(filepath)
                     uploaded_files.append({
                         'name': filename,
@@ -116,7 +194,8 @@ def upload_files():
             'success': True,
             'session_id': session_id,
             'files': uploaded_files,
-            'dicom_count': len([f for f in uploaded_files if f['is_dicom']])
+            'dicom_count': len([f for f in uploaded_files if f['is_dicom']]),
+            'total_count': len(uploaded_files)
         })
         
     except Exception as e:
@@ -135,6 +214,9 @@ def anonymize_files():
     input_dir = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
     output_session_id = os.urandom(16).hex()
     output_session_dir = os.path.join(app.config['OUTPUT_FOLDER'], output_session_id)
+    
+    # Track output session timestamp for cleanup
+    session_timestamps[output_session_id] = time.time()
     
     # Use safe directory creation
     if not safe_makedirs(output_session_dir):
@@ -240,7 +322,7 @@ def download_anonymized(session_id):
 
 @app.route('/cleanup/<session_id>')
 def cleanup_session(session_id):
-    """Clean up session files"""
+    """Clean up session files manually"""
     try:
         # Clean up upload session
         upload_session = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
@@ -257,9 +339,38 @@ def cleanup_session(session_id):
         if os.path.exists(zip_file):
             os.remove(zip_file)
         
+        # Remove from tracking
+        if session_id in session_timestamps:
+            del session_timestamps[session_id]
+        
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': f'Cleanup failed: {str(e)}'}), 500
+
+@app.route('/status')
+def status():
+    """Get application status including active sessions"""
+    try:
+        current_time = time.time()
+        active_sessions = []
+        
+        for session_id, timestamp in session_timestamps.items():
+            age_hours = (current_time - timestamp) / 3600
+            active_sessions.append({
+                'session_id': session_id,
+                'created': datetime.datetime.fromtimestamp(timestamp).isoformat(),
+                'age_hours': round(age_hours, 2),
+                'expires_in_hours': round(24 - age_hours, 2) if age_hours < 24 else 0
+            })
+        
+        return jsonify({
+            'active_sessions': len(active_sessions),
+            'sessions': active_sessions,
+            'upload_folder': app.config['UPLOAD_FOLDER'],
+            'output_folder': app.config['OUTPUT_FOLDER']
+        })
+    except Exception as e:
+        return jsonify({'error': f'Status check failed: {str(e)}'}), 500
 
 @app.errorhandler(413)
 def too_large(e):
@@ -269,5 +380,9 @@ if __name__ == '__main__':
     print("Starting DICOM Anonymizer Web Application...")
     print(f"Upload folder: {UPLOAD_FOLDER}")
     print(f"Output folder: {OUTPUT_FOLDER}")
+    print("?? Features enabled:")
+    print("  - Files without extensions accepted")
+    print("  - Automatic cleanup after 24 hours")
+    print("  - Content-based DICOM detection")
     print("Navigate to http://localhost:5000 in your web browser")
     app.run(host='0.0.0.0', port=5000, debug=True)

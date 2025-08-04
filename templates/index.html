@@ -314,7 +314,6 @@
                 <li><strong>DICOM detection</strong> - Files are validated by content, not extension</li>
                 <li><strong>ZIP archives</strong> - Automatically extracted and processed</li>
                 <li><strong>Maximum size</strong> - 1GB per upload</li>
-                <li><strong>Auto-cleanup</strong> - DICOM files deleted after 10 minutes, non-DICOM files deleted immediately</li>
             </ul>
         </div>
 
@@ -344,17 +343,17 @@
                 <div style="margin: 10px 0;">
                     <input type="radio" id="minimalMode" name="anonymizationMode" value="minimal" checked>
                     <label for="minimalMode">Custom Minimal Anonymization</label>
-                    <br><small>Only anonymizes names (→ random numbers), Patient ID (→ matches name), and Study ID (→ "ANONYMIZED")</small>
+                    <br><small>Only anonymizes names, Patient ID, and Study ID</small>
                 </div>
                 
                 <div style="margin: 10px 0;">
                     <input type="radio" id="standardMode" name="anonymizationMode" value="standard">
                     <label for="standardMode">Standard Full Anonymization</label>
-                    <br><small>Applies comprehensive DICOM anonymization rules as per medical standards</small>
+                    <br><small>Applies comprehensive DICOM anonymization rules</small>
                 </div>
             </div>
 
-            <div id="standardOptions">
+            <div id="standardOptions" style="display: none;">
                 <label>
                     <input type="checkbox" id="keepPrivateTags" checked> Keep private DICOM tags
                 </label>

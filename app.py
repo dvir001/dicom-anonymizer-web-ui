@@ -472,9 +472,9 @@ def cleanup_session(session_id):
             shutil.rmtree(output_session)
         
         # Clean up zip file
-        zip_file = os.path.join(app.config['OUTPUT_FOLDER'], f'{session_id}_anonymized.zip');
+        zip_file = os.path.join(app.config['OUTPUT_FOLDER'], f'{session_id}_anonymized.zip')
         if os.path.exists(zip_file):
-            os.remove(zip_file);
+            os.remove(zip_file)
         
         # Remove from tracking
         if session_id in session_timestamps:

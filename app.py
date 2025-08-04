@@ -6,17 +6,29 @@ import threading
 import time
 import datetime
 import hashlib
-from flask import Flask, render_template, request, send_file, jsonify
+from flask import Flask, render_template, request, send_file, jsonify, session, redirect, url_for, flash
 from werkzeug.utils import secure_filename
 import zipfile
 from dicomanonymizer.simpledicomanonymizer import anonymize_dicom_file
 from dicomanonymizer.anonymizer import isDICOMType
 import json
 import traceback
+from functools import wraps
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'dicom-anonymizer-secret-key-2024'
+app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'dicom-anonymizer-fallback-secret-key-2024')
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB max file size
+
+# Password configuration
+APP_PASSWORD = os.getenv('APP_PASSWORD', 'admin123')
+SESSION_TIMEOUT_MINUTES = int(os.getenv('SESSION_TIMEOUT_MINUTES', '60'))
+
+print(f"Authentication enabled with password from environment")
+print(f"Session timeout: {SESSION_TIMEOUT_MINUTES} minutes")
 
 # Create temp directories for uploads and outputs
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'temp_uploads')
@@ -220,11 +232,90 @@ def cleanup_old_sessions():
 cleanup_thread = threading.Thread(target=cleanup_old_sessions, daemon=True)
 cleanup_thread.start()
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        print(f"DEBUG: Checking authentication for {request.endpoint}")
+        print(f"DEBUG: Session contents: {dict(session)}")
+        print(f"DEBUG: Session.get('authenticated'): {session.get('authenticated')}")
+        print(f"DEBUG: Request URL: {request.url}")
+        print(f"DEBUG: Request method: {request.method}")
+        
+        # ENFORCE AUTHENTICATION - Multiple checks
+        authenticated = session.get('authenticated')
+        login_time = session.get('login_time')
+        
+        # Check 1: Must be authenticated
+        if not authenticated:
+            print(f"DEBUG: Authentication failed - not authenticated")
+            session.clear()  # Clear any residual session data
+            return redirect(url_for('login', next=request.url))
+        
+        # Check 2: Must have login time
+        if not login_time:
+            print(f"DEBUG: Authentication failed - no login time")
+            session.clear()
+            return redirect(url_for('login', next=request.url))
+        
+        # Check 3: Check session timeout
+        current_time = time.time()
+        session_age = current_time - login_time
+        max_age = SESSION_TIMEOUT_MINUTES * 60
+        
+        if session_age > max_age:
+            print(f"DEBUG: Session expired - age: {session_age}s, max: {max_age}s")
+            session.clear()
+            flash('Session expired. Please login again.', 'info')
+            return redirect(url_for('login'))
+        
+        # Check 4: Verify session integrity
+        if authenticated != True:
+            print(f"DEBUG: Session integrity check failed")
+            session.clear()
+            return redirect(url_for('login', next=request.url))
+        
+        print(f"DEBUG: Authentication successful - proceeding")
+        return f(*args, **kwargs)
+    return decorated_function
+
 @app.route('/')
+@login_required
 def index():
     return render_template('index.html')
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        password = request.form.get('password')
+        print(f"DEBUG: Login attempt with password: {'*' * len(password) if password else 'None'}")
+        print(f"DEBUG: Expected password: {'*' * len(APP_PASSWORD)}")
+        
+        if password == APP_PASSWORD:
+            session.clear()  # Clear any existing session data
+            session['authenticated'] = True
+            session['login_time'] = time.time()
+            session.permanent = True  # Enable session persistence
+            # Set the permanent session timeout
+            app.permanent_session_lifetime = datetime.timedelta(minutes=SESSION_TIMEOUT_MINUTES)
+            
+            print(f"DEBUG: Login successful, session created: {dict(session)}")
+            flash('Login successful!', 'success')
+            return redirect(request.args.get('next') or url_for('index'))
+        else:
+            print(f"DEBUG: Login failed - incorrect password")
+            flash('Invalid password. Please try again.', 'danger')
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.pop('authenticated', None)
+    session.pop('login_time', None)
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('login'))
+
 @app.route('/upload', methods=['POST'])
+@login_required
 def upload_files():
     if 'files' not in request.files:
         return jsonify({'error': 'No files uploaded'}), 400
@@ -317,6 +408,7 @@ def upload_files():
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
 @app.route('/anonymize', methods=['POST'])
+@login_required
 def anonymize_files():
     data = request.get_json()
     session_id = data.get('session_id')
@@ -430,6 +522,7 @@ def anonymize_files():
         return jsonify({'error': f'Anonymization failed: {str(e)}', 'traceback': traceback.format_exc()}), 500
 
 @app.route('/download/<session_id>')
+@login_required
 def download_anonymized(session_id):
     output_dir = os.path.join(app.config['OUTPUT_FOLDER'], session_id)
     
@@ -480,6 +573,7 @@ def download_anonymized(session_id):
         return jsonify({'error': f'Download failed: {str(e)}'}), 500
 
 @app.route('/cleanup/<session_id>')
+@login_required
 def cleanup_session(session_id):
     """Clean up session files manually"""
     try:
@@ -507,6 +601,7 @@ def cleanup_session(session_id):
         return jsonify({'error': f'Cleanup failed: {str(e)}'}), 500
 
 @app.route('/status')
+@login_required
 def status():
     """Get application status including active sessions"""
     try:
@@ -534,6 +629,22 @@ def status():
 @app.errorhandler(413)
 def too_large(e):
     return jsonify({'error': 'File too large. Maximum size is 1GB.'}), 413
+
+@app.route('/debug-session')
+def debug_session():
+    """Debug route to check session state"""
+    return jsonify({
+        'session_data': dict(session),
+        'authenticated': session.get('authenticated'),
+        'login_time': session.get('login_time'),
+        'current_time': time.time(),
+        'session_permanent': session.permanent,
+        'secret_key_set': bool(app.config.get('SECRET_KEY')),
+        'secret_key_preview': app.config.get('SECRET_KEY', '')[:10] + '...' if app.config.get('SECRET_KEY') else 'NOT SET',
+        'app_password_set': bool(APP_PASSWORD),
+        'request_headers': dict(request.headers),
+        'remote_addr': request.remote_addr
+    })
 
 if __name__ == '__main__':
     print("Starting DICOM Anonymizer Web Application...")

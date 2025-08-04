@@ -65,6 +65,43 @@ def safe_makedirs(path):
         print(f"? Error creating directory {path}: {e}")
         return False
 
+def cleanup_non_dicom_files(uploaded_files, session_dir):
+    """
+    Immediately delete non-DICOM files to save space and improve security
+    """
+    files_deleted = 0
+    for file_info in uploaded_files:
+        if not file_info['is_dicom']:
+            try:
+                file_path = file_info['path']
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    files_deleted += 1
+                    print(f"??? Immediately deleted non-DICOM file: {file_info['name']}")
+            except Exception as e:
+                print(f"? Error deleting non-DICOM file {file_info['name']}: {e}")
+    
+    # Also clean up empty directories from ZIP extraction
+    try:
+        extract_dir = os.path.join(session_dir, 'extracted')
+        if os.path.exists(extract_dir):
+            # Check if extract_dir is empty or only contains non-DICOM files
+            remaining_dicom_files = []
+            for root, dirs, files in os.walk(extract_dir):
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    if is_dicom_file(full_path):
+                        remaining_dicom_files.append(full_path)
+            
+            # If no DICOM files remain in extracted directory, remove it
+            if not remaining_dicom_files:
+                shutil.rmtree(extract_dir)
+                print(f"??? Removed empty extraction directory: {extract_dir}")
+    except Exception as e:
+        print(f"? Error cleaning up extraction directory: {e}")
+    
+    return files_deleted
+
 def cleanup_old_sessions():
     """
     Background task to clean up sessions older than 10 minutes
@@ -106,7 +143,7 @@ def cleanup_old_sessions():
                 except Exception as e:
                     print(f"? Error cleaning up session {session_id}: {e}")
             
-            # Sleep for 1 minute before next cleanup check (more frequent checks for 10-minute cleanup)
+            # Sleep for 1 minute before next cleanup check
             time.sleep(60)
             
         except Exception as e:
@@ -164,6 +201,10 @@ def upload_files():
                     with zipfile.ZipFile(filepath, 'r') as zip_ref:
                         zip_ref.extractall(extract_dir)
                     
+                    # Remove the original ZIP file after extraction
+                    os.remove(filepath)
+                    print(f"??? Removed original ZIP file: {filename}")
+                    
                     # Find DICOM files in extracted content
                     for root, dirs, files_in_zip in os.walk(extract_dir):
                         for zip_file in files_in_zip:
@@ -175,7 +216,7 @@ def upload_files():
                                     'is_dicom': True
                                 })
                             else:
-                                # Include non-DICOM files from ZIP for transparency
+                                # Add non-DICOM files to list for immediate deletion
                                 uploaded_files.append({
                                     'name': zip_file,
                                     'path': full_path,
@@ -190,12 +231,20 @@ def upload_files():
                         'is_dicom': is_dicom
                     })
         
+        # Immediately clean up non-DICOM files
+        deleted_count = cleanup_non_dicom_files(uploaded_files, session_dir)
+        
+        # Filter out deleted files from the response (keep only DICOM files)
+        dicom_files = [f for f in uploaded_files if f['is_dicom']]
+        
         return jsonify({
             'success': True,
             'session_id': session_id,
-            'files': uploaded_files,
-            'dicom_count': len([f for f in uploaded_files if f['is_dicom']]),
-            'total_count': len(uploaded_files)
+            'files': dicom_files,  # Only return DICOM files
+            'dicom_count': len(dicom_files),
+            'total_count': len(uploaded_files),
+            'non_dicom_deleted': deleted_count,
+            'message': f'Processed {len(uploaded_files)} files. {deleted_count} non-DICOM files were immediately deleted.' if deleted_count > 0 else f'Processed {len(uploaded_files)} files.'
         })
         
     except Exception as e:

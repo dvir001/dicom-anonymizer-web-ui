@@ -580,7 +580,7 @@
             const resultsStatus = document.getElementById('resultsStatus');
             resultsStatus.innerHTML = `
                     <div class="status success">
-                        ✅ Successfully anonymized ${result.count} DICOM files
+                        ✅ Successfully anonymized ${result.count} DICOM files - Download starting automatically...
                     </div>
                     <div class="file-list">
                         <h4>🔒 Anonymized Files:</h4>
@@ -598,6 +598,16 @@
 
             optionsCard.classList.add('hidden');
             resultsCard.classList.remove('hidden');
+
+            // Automatically start download after a short delay
+            setTimeout(() => {
+                downloadAnonymizedFiles();
+                // Update the status message after download starts
+                const statusDiv = resultsStatus.querySelector('.status.success');
+                if (statusDiv) {
+                    statusDiv.innerHTML = '✅ Successfully anonymized ' + result.count + ' DICOM files - Download started!';
+                }
+            }, 1500); // 1.5 second delay to show the completion message first
         }
 
         function downloadAnonymizedFiles() {

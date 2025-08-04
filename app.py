@@ -437,22 +437,44 @@ def download_anonymized(session_id):
         return jsonify({'error': 'Session not found'}), 404
     
     try:
-        # Create a ZIP file with all anonymized files
-        zip_path = os.path.join(app.config['OUTPUT_FOLDER'], f'{session_id}_anonymized.zip')
+        # Collect all files in the output directory
+        all_files = []
+        for root, dirs, files in os.walk(output_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                all_files.append(file_path)
         
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for root, dirs, files in os.walk(output_dir):
-                for file in files:
-                    file_path = os.path.join(root, file)
+        if len(all_files) == 0:
+            return jsonify({'error': 'No files found for download'}), 404
+        elif len(all_files) == 1:
+            # Single file - serve directly without zipping
+            single_file = all_files[0]
+            original_filename = os.path.basename(single_file)
+            # Add suffix to indicate it's anonymized
+            name_parts = os.path.splitext(original_filename)
+            download_filename = f"{name_parts[0]}_anonymized{name_parts[1]}" if name_parts[1] else f"{original_filename}_anonymized"
+            
+            return send_file(
+                single_file,
+                as_attachment=True,
+                download_name=download_filename,
+                mimetype='application/octet-stream'
+            )
+        else:
+            # Multiple files - create ZIP as before
+            zip_path = os.path.join(app.config['OUTPUT_FOLDER'], f'{session_id}_anonymized.zip')
+            
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for file_path in all_files:
                     arc_path = os.path.relpath(file_path, output_dir)
                     zipf.write(file_path, arc_path)
-        
-        return send_file(
-            zip_path,
-            as_attachment=True,
-            download_name='anonymized_dicom_files.zip',
-            mimetype='application/zip'
-        )
+            
+            return send_file(
+                zip_path,
+                as_attachment=True,
+                download_name='anonymized_dicom_files.zip',
+                mimetype='application/zip'
+            )
         
     except Exception as e:
         return jsonify({'error': f'Download failed: {str(e)}'}), 500

@@ -235,6 +235,53 @@
             margin: 20px 0;
         }
 
+        .radio-group {
+            margin: 15px 0;
+            padding: 15px;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+
+        .radio-option {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+            transition: background-color 0.2s ease;
+        }
+
+        .radio-option:hover {
+            background: #e9ecef;
+        }
+
+        .radio-option input[type="radio"] {
+            margin-right: 10px;
+        }
+
+        .radio-option label {
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .radio-option small {
+            display: block;
+            margin-top: 5px;
+            color: #6c757d;
+            font-style: italic;
+        }
+
+        .checkbox-option {
+            margin: 15px 0;
+            padding: 10px;
+            border-radius: 5px;
+            background: #f1f3f4;
+        }
+
+        .checkbox-option label {
+            cursor: pointer;
+            font-weight: 500;
+        }
+
         @media (max-width: 768px) {
             .container {
                 margin: 10px;
@@ -291,10 +338,28 @@
 
         <div id="optionsCard" class="hidden">
             <h3>⚙️ Anonymization Options</h3>
-            <label>
-                <input type="checkbox" id="keepPrivateTags" checked> Keep private DICOM tags
-            </label>
-            <p><small>Private tags will be preserved. Uncheck to remove private tags for maximum anonymization</small></p>
+            
+            <h4>🛡️ Anonymization Mode</h4>
+            <div style="margin: 15px 0;">
+                <div style="margin: 10px 0;">
+                    <input type="radio" id="minimalMode" name="anonymizationMode" value="minimal" checked>
+                    <label for="minimalMode">Custom Minimal Anonymization</label>
+                    <br><small>Only anonymizes names (→ random numbers), Patient ID (→ matches name), and Study ID (→ "ANONYMIZED")</small>
+                </div>
+                
+                <div style="margin: 10px 0;">
+                    <input type="radio" id="standardMode" name="anonymizationMode" value="standard">
+                    <label for="standardMode">Standard Full Anonymization</label>
+                    <br><small>Applies comprehensive DICOM anonymization rules as per medical standards</small>
+                </div>
+            </div>
+
+            <div id="standardOptions">
+                <label>
+                    <input type="checkbox" id="keepPrivateTags" checked> Keep private DICOM tags
+                </label>
+                <p><small>Private tags will be preserved. Uncheck to remove private tags for maximum anonymization</small></p>
+            </div>
             <br>
             <button id="anonymizeBtn" class="btn" onclick="startAnonymization()">🔒 Start Anonymization</button>
         </div>
@@ -325,6 +390,18 @@
         const progressText = document.getElementById('progressText');
         const optionsCard = document.getElementById('optionsCard');
         const resultsCard = document.getElementById('resultsCard');
+        const standardOptions = document.getElementById('standardOptions');
+
+        // Show/hide standard options based on anonymization mode
+        document.querySelectorAll('input[name="anonymizationMode"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                if (this.value === 'standard') {
+                    standardOptions.style.display = 'block';
+                } else {
+                    standardOptions.style.display = 'none';
+                }
+            });
+        });
 
         // Enhanced drag and drop functionality
         uploadArea.addEventListener('click', () => fileInput.click());
@@ -417,7 +494,8 @@
                         showStatus(`✅ Successfully uploaded ${result.total_count} files (${result.dicom_count} DICOM files detected)`, 'success');
                         optionsCard.classList.remove('hidden');
                     } else {
-                        showStatus(`⚠️ Uploaded ${result.total_count} files, but no DICOM files were detected. Please check your files.`, 'warning');
+                        showStatus(`⚠️ Uploaded ${result.total_count} files, but no DICOM files were detected. Please check your files.`,
+                        'warning');
                     }
                 } else {
                     showStatus(`❌ Upload failed: ${result.error}`, 'error');
@@ -464,6 +542,7 @@
             anonymizeBtn.textContent = '🔄 Anonymizing...';
 
             const keepPrivateTags = document.getElementById('keepPrivateTags').checked;
+            const anonymizationMode = document.querySelector('input[name="anonymizationMode"]:checked')?.value || 'standard';
 
             showStatus('⚙️ Anonymizing DICOM files...', 'info');
 
@@ -475,6 +554,7 @@
                     },
                     body: JSON.stringify({
                         session_id: currentSession,
+                        anonymization_mode: anonymizationMode,
                         keep_private_tags: keepPrivateTags,
                         custom_rules: {}
                     })
@@ -561,6 +641,18 @@
         // Show a welcome message on page load
         window.addEventListener('load', () => {
             showStatus('🚀 Ready to upload files. No file extensions required - DICOM files are detected by content.', 'info');
+            
+            // Add event listeners for anonymization mode radio buttons
+            document.querySelectorAll('input[name="anonymizationMode"]').forEach(radio => {
+                radio.addEventListener('change', function() {
+                    const standardOptions = document.getElementById('standardOptions');
+                    if (this.value === 'standard') {
+                        standardOptions.style.display = 'block';
+                    } else {
+                        standardOptions.style.display = 'none';
+                    }
+                });
+            });
         });
     </script>
 </body>

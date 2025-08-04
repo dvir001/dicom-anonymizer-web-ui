@@ -267,7 +267,7 @@
                 <li><strong>DICOM detection</strong> - Files are validated by content, not extension</li>
                 <li><strong>ZIP archives</strong> - Automatically extracted and processed</li>
                 <li><strong>Maximum size</strong> - 1GB per upload</li>
-                <li><strong>Auto-cleanup</strong> - Files automatically deleted after 24 hours</li>
+                <li><strong>Auto-cleanup</strong> - Files automatically deleted after 10 minutes</li>
             </ul>
         </div>
 
@@ -306,7 +306,7 @@
             <button class="btn" onclick="startOver()">🔄 Start Over</button>
 
             <div class="cleanup-info">
-                <p><strong>Note:</strong> Files will be automatically deleted from the server after 24 hours for security.</p>
+                <p><strong>Note:</strong> Files will be automatically deleted from the server after 10 minutes for security.</p>
             </div>
         </div>
     </div>
@@ -393,7 +393,7 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
-        async function uploadFiles(files) {
+        async function uploadFiles(files = []) {
             if (files.length === 0) return;
 
             const formData = new FormData();
@@ -524,7 +524,7 @@
         function downloadAnonymizedFiles() {
             if (currentOutputSession) {
                 window.location.href = `/download/${currentOutputSession}`;
-                // Clean up after a delay (files will also auto-cleanup after 24h)
+                // Clean up after a delay (files will also auto-cleanup after 10 minutes)
                 setTimeout(() => {
                     fetch(`/cleanup/${currentOutputSession}`);
                     fetch(`/cleanup/${currentSession}`);

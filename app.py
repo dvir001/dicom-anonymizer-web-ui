@@ -67,7 +67,7 @@ def safe_makedirs(path):
 
 def cleanup_old_sessions():
     """
-    Background task to clean up sessions older than 24 hours
+    Background task to clean up sessions older than 10 minutes
     """
     while True:
         try:
@@ -75,8 +75,8 @@ def cleanup_old_sessions():
             sessions_to_remove = []
             
             for session_id, timestamp in session_timestamps.items():
-                # Check if session is older than 24 hours (86400 seconds)
-                if current_time - timestamp > 86400:
+                # Check if session is older than 10 minutes (600 seconds)
+                if current_time - timestamp > 600:
                     sessions_to_remove.append(session_id)
             
             # Clean up old sessions
@@ -106,12 +106,12 @@ def cleanup_old_sessions():
                 except Exception as e:
                     print(f"? Error cleaning up session {session_id}: {e}")
             
-            # Sleep for 1 hour before next cleanup check
-            time.sleep(3600)
+            # Sleep for 1 minute before next cleanup check (more frequent checks for 10-minute cleanup)
+            time.sleep(60)
             
         except Exception as e:
             print(f"? Error in cleanup thread: {e}")
-            time.sleep(3600)  # Continue checking even if there's an error
+            time.sleep(60)  # Continue checking even if there's an error
 
 # Start the cleanup thread
 cleanup_thread = threading.Thread(target=cleanup_old_sessions, daemon=True)
@@ -355,12 +355,12 @@ def status():
         active_sessions = []
         
         for session_id, timestamp in session_timestamps.items():
-            age_hours = (current_time - timestamp) / 3600
+            age_minutes = (current_time - timestamp) / 60
             active_sessions.append({
                 'session_id': session_id,
                 'created': datetime.datetime.fromtimestamp(timestamp).isoformat(),
-                'age_hours': round(age_hours, 2),
-                'expires_in_hours': round(24 - age_hours, 2) if age_hours < 24 else 0
+                'age_minutes': round(age_minutes, 2),
+                'expires_in_minutes': round(10 - age_minutes, 2) if age_minutes < 10 else 0
             })
         
         return jsonify({
@@ -382,7 +382,7 @@ if __name__ == '__main__':
     print(f"Output folder: {OUTPUT_FOLDER}")
     print("?? Features enabled:")
     print("  - Files without extensions accepted")
-    print("  - Automatic cleanup after 24 hours")
+    print("  - Automatic cleanup after 10 minutes")
     print("  - Content-based DICOM detection")
     print("Navigate to http://localhost:5000 in your web browser")
     app.run(host='0.0.0.0', port=5000, debug=True)

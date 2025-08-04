@@ -1,4 +1,4 @@
-# Flask DICOM Anonymizer Web Application
+﻿# Flask DICOM Anonymizer Web Application
 import os
 import tempfile
 import shutil
@@ -24,13 +24,13 @@ OUTPUT_FOLDER = os.path.join(os.getcwd(), 'temp_outputs')
 try:
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-    print(f"? Created directories: {UPLOAD_FOLDER}, {OUTPUT_FOLDER}")
+    print(f"✓ Created directories: {UPLOAD_FOLDER}, {OUTPUT_FOLDER}")
 except PermissionError as e:
-    print(f"? Permission error creating directories: {e}")
+    print(f"⚠ Permission error creating directories: {e}")
     # Fallback to system temp directory
     UPLOAD_FOLDER = tempfile.mkdtemp(prefix='dicom_uploads_')
     OUTPUT_FOLDER = tempfile.mkdtemp(prefix='dicom_outputs_')
-    print(f"?? Using fallback directories: {UPLOAD_FOLDER}, {OUTPUT_FOLDER}")
+    print(f"⚠⚠ Using fallback directories: {UPLOAD_FOLDER}, {OUTPUT_FOLDER}")
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['OUTPUT_FOLDER'] = OUTPUT_FOLDER
@@ -59,10 +59,10 @@ def safe_makedirs(path):
         os.makedirs(path, exist_ok=True)
         return True
     except PermissionError as e:
-        print(f"? Permission error creating directory {path}: {e}")
+        print(f"⚠ Permission error creating directory {path}: {e}")
         return False
     except Exception as e:
-        print(f"? Error creating directory {path}: {e}")
+        print(f"⚠ Error creating directory {path}: {e}")
         return False
 
 def cleanup_non_dicom_files(uploaded_files, session_dir):
@@ -77,9 +77,9 @@ def cleanup_non_dicom_files(uploaded_files, session_dir):
                 if os.path.exists(file_path):
                     os.remove(file_path)
                     files_deleted += 1
-                    print(f"??? Immediately deleted non-DICOM file: {file_info['name']}")
+                    print(f"🗑️ Immediately deleted non-DICOM file: {file_info['name']}")
             except Exception as e:
-                print(f"? Error deleting non-DICOM file {file_info['name']}: {e}")
+                print(f"⚠ Error deleting non-DICOM file {file_info['name']}: {e}")
     
     # Also clean up empty directories from ZIP extraction
     try:
@@ -96,9 +96,9 @@ def cleanup_non_dicom_files(uploaded_files, session_dir):
             # If no DICOM files remain in extracted directory, remove it
             if not remaining_dicom_files:
                 shutil.rmtree(extract_dir)
-                print(f"??? Removed empty extraction directory: {extract_dir}")
+                print(f"🗑️ Removed empty extraction directory: {extract_dir}")
     except Exception as e:
-        print(f"? Error cleaning up extraction directory: {e}")
+        print(f"⚠ Error cleaning up extraction directory: {e}")
     
     return files_deleted
 
@@ -123,31 +123,31 @@ def cleanup_old_sessions():
                     upload_session = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
                     if os.path.exists(upload_session):
                         shutil.rmtree(upload_session)
-                        print(f"??? Cleaned up old upload session: {session_id}")
+                        print(f"🧹 Cleaned up old upload session: {session_id}")
                     
                     # Clean up output session
                     output_session = os.path.join(app.config['OUTPUT_FOLDER'], session_id)
                     if os.path.exists(output_session):
                         shutil.rmtree(output_session)
-                        print(f"??? Cleaned up old output session: {session_id}")
+                        print(f"🧹 Cleaned up old output session: {session_id}")
                     
                     # Clean up zip files
                     zip_file = os.path.join(app.config['OUTPUT_FOLDER'], f'{session_id}_anonymized.zip')
                     if os.path.exists(zip_file):
                         os.remove(zip_file)
-                        print(f"??? Cleaned up old zip file: {session_id}")
+                        print(f"🧹 Cleaned up old zip file: {session_id}")
                     
                     # Remove from tracking
                     del session_timestamps[session_id]
                     
                 except Exception as e:
-                    print(f"? Error cleaning up session {session_id}: {e}")
+                    print(f"⚠ Error cleaning up session {session_id}: {e}")
             
             # Sleep for 1 minute before next cleanup check
             time.sleep(60)
             
         except Exception as e:
-            print(f"? Error in cleanup thread: {e}")
+            print(f"⚠ Error in cleanup thread: {e}")
             time.sleep(60)  # Continue checking even if there's an error
 
 # Start the cleanup thread
@@ -203,7 +203,7 @@ def upload_files():
                     
                     # Remove the original ZIP file after extraction
                     os.remove(filepath)
-                    print(f"??? Removed original ZIP file: {filename}")
+                    print(f"🗑️ Removed original ZIP file: {filename}")
                     
                     # Find DICOM files in extracted content
                     for root, dirs, files_in_zip in os.walk(extract_dir):
@@ -429,7 +429,7 @@ if __name__ == '__main__':
     print("Starting DICOM Anonymizer Web Application...")
     print(f"Upload folder: {UPLOAD_FOLDER}")
     print(f"Output folder: {OUTPUT_FOLDER}")
-    print("?? Features enabled:")
+    print("🚀 Features enabled:")
     print("  - Files without extensions accepted")
     print("  - Automatic cleanup after 10 minutes")
     print("  - Content-based DICOM detection")

@@ -292,9 +292,9 @@
         <div id="optionsCard" class="hidden">
             <h3>⚙️ Anonymization Options</h3>
             <label>
-                <input type="checkbox" id="keepPrivateTags"> Keep private DICOM tags
+                <input type="checkbox" id="keepPrivateTags" checked> Keep private DICOM tags
             </label>
-            <p><small>By default, private tags are removed for maximum anonymization</small></p>
+            <p><small>Private tags will be preserved. Uncheck to remove private tags for maximum anonymization</small></p>
             <br>
             <button id="anonymizeBtn" class="btn" onclick="startAnonymization()">🔒 Start Anonymization</button>
         </div>

@@ -66,6 +66,109 @@ session_timestamps = {}
 # Global cache for consistent name mappings during anonymization
 name_mapping_cache = {}
 
+# Brute force protection - tracks failed login attempts by client fingerprint
+login_attempts_global = {}
+
+# Brute force protection configuration  
+MAX_LOGIN_ATTEMPTS = int(os.getenv('MAX_LOGIN_ATTEMPTS', '5'))
+LOGIN_LOCKOUT_DURATION = int(os.getenv('LOGIN_LOCKOUT_DURATION', '300'))  # 5 minutes default
+EXPONENTIAL_BACKOFF_BASE = int(os.getenv('EXPONENTIAL_BACKOFF_BASE', '2'))  # seconds
+
+
+def get_client_fingerprint(request):
+    """
+    Generate a client fingerprint using user agent and other headers.
+    This provides basic client identification without relying on IP addresses.
+    """
+    user_agent = request.headers.get('User-Agent', '')
+    accept_language = request.headers.get('Accept-Language', '')
+    accept_encoding = request.headers.get('Accept-Encoding', '')
+    
+    # Create a fingerprint from headers
+    fingerprint_data = f"{user_agent}|{accept_language}|{accept_encoding}"
+    fingerprint_hash = hashlib.sha256(fingerprint_data.encode('utf-8')).hexdigest()[:16]
+    
+    return fingerprint_hash
+
+
+def is_client_locked_out(client_fingerprint):
+    """
+    Check if a client is currently locked out due to too many failed attempts.
+    Returns (is_locked_out, remaining_lockout_seconds)
+    """
+    if client_fingerprint not in login_attempts_global:
+        return False, 0
+    
+    attempts, lockout_start_time = login_attempts_global[client_fingerprint]
+    
+    # If haven't reached max attempts yet, not locked out
+    if attempts < MAX_LOGIN_ATTEMPTS:
+        return False, 0
+    
+    # Check if lockout duration has passed
+    current_time = time.time()
+    time_since_lockout = current_time - lockout_start_time
+    
+    if time_since_lockout < LOGIN_LOCKOUT_DURATION:
+        remaining_lockout = LOGIN_LOCKOUT_DURATION - time_since_lockout
+        return True, remaining_lockout
+    else:
+        # Lockout duration has passed, reset attempts
+        del login_attempts_global[client_fingerprint]
+        return False, 0
+
+
+def record_failed_login_attempt(client_fingerprint):
+    """
+    Record a failed login attempt for the client fingerprint.
+    Returns (current_attempts, is_now_locked_out)
+    """
+    current_time = time.time()
+    
+    if client_fingerprint not in login_attempts_global:
+        # First failed attempt
+        login_attempts_global[client_fingerprint] = (1, current_time)
+        print(f"Security: First failed login attempt for fingerprint {client_fingerprint[:8]}...")
+        return 1, False
+    else:
+        attempts, first_attempt_time = login_attempts_global[client_fingerprint]
+        
+        # Increment attempt count but keep original timestamp for proper lockout tracking
+        new_attempts = attempts + 1
+        login_attempts_global[client_fingerprint] = (new_attempts, first_attempt_time)
+        
+        # Check if this triggers a lockout
+        is_locked_out = new_attempts >= MAX_LOGIN_ATTEMPTS
+        
+        print(f"Security: Failed login attempt #{new_attempts} for fingerprint {client_fingerprint[:8]}...")
+        if is_locked_out:
+            print(f"Security: Client fingerprint {client_fingerprint[:8]}... now LOCKED OUT after {new_attempts} attempts")
+        
+        return new_attempts, is_locked_out
+
+
+def clear_failed_login_attempts(client_fingerprint):
+    """
+    Clear failed login attempts for a client fingerprint after successful login.
+    """
+    if client_fingerprint in login_attempts_global:
+        attempts, _ = login_attempts_global[client_fingerprint]
+        del login_attempts_global[client_fingerprint]
+        print(f"Security: Cleared {attempts} failed login attempts for fingerprint {client_fingerprint[:8]}... after successful login")
+
+
+def calculate_backoff_delay(attempts):
+    """
+    Calculate exponential backoff delay based on number of attempts.
+    """
+    # Cap the backoff to prevent extremely long delays
+    max_attempts_for_backoff = 6
+    capped_attempts = min(attempts, max_attempts_for_backoff)
+    
+    # Exponential backoff: 2^attempts seconds, capped at 32 seconds
+    delay = min(EXPONENTIAL_BACKOFF_BASE ** capped_attempts, 32)
+    return delay
+
 
 def allowed_file(filename):
     """
@@ -342,11 +445,47 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    """Authentication endpoint."""
+    """Authentication endpoint with brute force protection."""
     if request.method == 'POST':
         password = request.form.get('password')
         
+        # Get client fingerprint for monitoring (avoid using IP for proxy compatibility)
+        user_agent = request.headers.get('User-Agent', '')
+        accept_language = request.headers.get('Accept-Language', '')
+        accept_encoding = request.headers.get('Accept-Encoding', '')
+        fingerprint_data = f"{user_agent}|{accept_language}|{accept_encoding}"
+        client_fingerprint = hashlib.sha256(fingerprint_data.encode('utf-8')).hexdigest()[:16]
+        
+        # If already authenticated, redirect to index
+        if session.get('authenticated'):
+            return redirect(url_for('index'))
+        
+        # Check if client is locked out
+        if client_fingerprint in login_attempts_global:
+            attempts, lockout_start = login_attempts_global[client_fingerprint]
+            if attempts >= MAX_LOGIN_ATTEMPTS:
+                # Check if lockout duration has passed
+                current_time = time.time()
+                time_since_lockout = current_time - lockout_start
+                
+                if time_since_lockout < LOGIN_LOCKOUT_DURATION:
+                    # Still locked out
+                    remaining_lockout = LOGIN_LOCKOUT_DURATION - time_since_lockout
+                    minutes, seconds = divmod(remaining_lockout, 60)
+                    print(f"Security: Login attempt blocked for fingerprint {client_fingerprint[:8]}... (locked out for {int(remaining_lockout)}s)")
+                    flash(f'Too many failed login attempts. Try again in {int(minutes)} minute(s) and {int(seconds)} second(s).', 'danger')
+                    return render_template('login.html')
+                else:
+                    # Lockout expired, clear the record
+                    del login_attempts_global[client_fingerprint]
+        
         if password == APP_PASSWORD:
+            # Successful login - clear any failed attempt records
+            if client_fingerprint in login_attempts_global:
+                attempts, _ = login_attempts_global[client_fingerprint]
+                del login_attempts_global[client_fingerprint]
+                print(f"Security: Successful login - cleared {attempts} failed attempts for fingerprint {client_fingerprint[:8]}...")
+            
             session.clear()
             session['authenticated'] = True
             session['login_time'] = time.time()
@@ -354,10 +493,35 @@ def login():
             # Set the permanent session timeout
             app.permanent_session_lifetime = datetime.timedelta(minutes=SESSION_TIMEOUT_MINUTES)
             
+            print(f"Security: Successful login for fingerprint {client_fingerprint[:8]}...")
             flash('Login successful!', 'success')
             return redirect(request.args.get('next') or url_for('index'))
         else:
-            flash('Invalid password. Please try again.', 'danger')
+            # Invalid password - record failed attempt
+            current_time = time.time()
+            
+            if client_fingerprint not in login_attempts_global:
+                login_attempts_global[client_fingerprint] = (1, current_time)
+                attempts = 1
+                print(f"Security: First failed login attempt for fingerprint {client_fingerprint[:8]}...")
+            else:
+                prev_attempts, first_attempt_time = login_attempts_global[client_fingerprint]
+                attempts = prev_attempts + 1
+                # Keep the original timestamp for proper lockout duration tracking
+                login_attempts_global[client_fingerprint] = (attempts, first_attempt_time)
+                print(f"Security: Failed login attempt #{attempts} for fingerprint {client_fingerprint[:8]}...")
+            
+            # Apply exponential backoff delay
+            backoff_time = min(EXPONENTIAL_BACKOFF_BASE ** min(attempts, 6), 32)
+            print(f"Security: Applying {backoff_time}s backoff delay for attempt #{attempts}")
+            time.sleep(backoff_time)
+            
+            # Check if this attempt triggers a lockout
+            if attempts >= MAX_LOGIN_ATTEMPTS:
+                print(f"Security: Client fingerprint {client_fingerprint[:8]}... locked out after {attempts} failed attempts")
+                flash(f'Too many failed login attempts. Access temporarily restricted for {LOGIN_LOCKOUT_DURATION // 60} minutes.', 'danger')
+            else:
+                flash('Invalid password. Please try again.', 'danger')
     
     return render_template('login.html')
 
@@ -493,7 +657,6 @@ def anonymize_files():
     
     if not os.path.exists(input_dir):
         return jsonify({'error': 'Session not found'}), 404
-    
     try:
         # Process anonymization rules based on mode
         extra_anonymization_rules = {}
@@ -714,6 +877,40 @@ def debug_session():
         'app_password_set': bool(APP_PASSWORD),
         'request_headers': dict(request.headers),
         'remote_addr': request.remote_addr
+    })
+
+
+@app.route('/debug-login-attempts')
+def debug_login_attempts():
+    """Debug route to check login attempt state (development only)."""
+    if IS_PRODUCTION:
+        return jsonify({'error': 'Debug endpoint disabled in production'}), 404
+    
+    current_time = time.time()
+    attempts_debug = {}
+    
+    for fingerprint, (attempts, first_time) in login_attempts_global.items():
+        age_seconds = current_time - first_time
+        locked_out, remaining = is_client_locked_out(fingerprint)
+        
+        attempts_debug[fingerprint[:8] + "..."] = {
+            'attempts': attempts,
+            'first_attempt_ago_seconds': round(age_seconds, 1),
+            'is_locked_out': locked_out,
+            'remaining_lockout_seconds': round(remaining, 1) if locked_out else 0,
+            'max_attempts': MAX_LOGIN_ATTEMPTS,
+            'lockout_duration': LOGIN_LOCKOUT_DURATION
+        }
+    
+    current_fingerprint = get_client_fingerprint(request)
+    
+    return jsonify({
+        'current_fingerprint': current_fingerprint[:8] + "...",
+        'max_attempts': MAX_LOGIN_ATTEMPTS,
+        'lockout_duration': LOGIN_LOCKOUT_DURATION,
+        'active_login_attempts': attempts_debug,
+        'total_tracked_clients': len(login_attempts_global),
+        'note': 'This debug endpoint helps diagnose brute force protection issues'
     })
 
 

@@ -1,5 +1,5 @@
 services:
-  dicom-anonymizer-web:
+  dicom-anonymizer:
     build: .
     container_name: dicom-anonymizer
     # Uncomment for direct access testing
@@ -17,14 +17,18 @@ services:
         traefik.docker.network: "traefik_lan"
     volumes:
       # Mount directories for persistent storage (optional)
-      - uploads_data:/app/temp_uploads:rw
-      - outputs_data:/app/temp_outputs:rw
+      - dicom_uploads:/app/temp_uploads
+      - dicom_outputs:/app/temp_outputs
     environment:
       - FLASK_ENV=production
       - FLASK_APP=app.py
       - APP_PASSWORD=${APP_PASSWORD:-secure_password_here}
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-fallback-secret-key}
       - SESSION_TIMEOUT_MINUTES=${SESSION_TIMEOUT_MINUTES:-60}
+      # Brute force protection configuration
+      - MAX_LOGIN_ATTEMPTS=${MAX_LOGIN_ATTEMPTS:-5}
+      - LOGIN_LOCKOUT_DURATION=${LOGIN_LOCKOUT_DURATION:-300}
+      - EXPONENTIAL_BACKOFF_BASE=${EXPONENTIAL_BACKOFF_BASE:-2}
       # Add additional Flask production settings
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
@@ -40,10 +44,18 @@ services:
       start_period: 40s
 
 volumes:
-  uploads_data:
+  dicom_uploads:
     driver: local
-  outputs_data:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=2G,noexec,nosuid,nodev
+  dicom_outputs:
     driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=2G,noexec,nosuid,nodev
 
 networks:
   traefik_lan:

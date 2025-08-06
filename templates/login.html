@@ -160,7 +160,7 @@
         <div class="login-header">
             <div class="lock-icon">🔒</div>
             <h1>DICOM Anonymizer</h1>
-            <p>Please enter the password to access the application</p>
+            <p>Please enter the access code to access the application</p>
         </div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -168,7 +168,12 @@
                 {% for category, message in messages %}
                     {% if category == 'danger' or category == 'error' %}
                         <div class="error-message">
-                            ✗ {{ message }}
+                            {% if 'Too many failed login attempts' in message %}
+                                🔒 {{ message }}
+                                <br><small style="margin-top: 8px; display: block;">This security measure protects against unauthorized access attempts.</small>
+                            {% else %}
+                                ✗ {{ message }}
+                            {% endif %}
                         </div>
                     {% elif category == 'info' %}
                         <div class="info-message">
@@ -185,12 +190,17 @@
 
         <form class="login-form" method="POST">
             <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required autocomplete="current-password">
+                <label for="password">Access Code</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Enter your access code">
             </div>
             
-            <button type="submit" class="login-btn">Login</button>
+            <button type="submit" class="login-btn" id="loginBtn">Access System</button>
         </form>
+
+        <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 0.85em; color: #666;">
+            <strong>Security Notice:</strong> This application implements advanced access protection. 
+            Multiple failed authentication attempts will result in temporary access restrictions.
+        </div>
     </div>
 </body>
 </html>

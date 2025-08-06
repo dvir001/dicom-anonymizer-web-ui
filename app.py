@@ -1,4 +1,9 @@
-﻿# Flask DICOM Anonymizer Web Application
+# Flask DICOM Anonymizer Web Application
+"""
+A secure web-based DICOM file anonymizer that provides both minimal and standard anonymization modes.
+Features include file validation, automatic cleanup, session management, and secure authentication.
+"""
+
 import os
 import tempfile
 import shutil
@@ -19,58 +24,67 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Flask application configuration
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'dicom-anonymizer-fallback-secret-key-2024')
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB max file size
 
-# Password configuration
+# Security and session configuration
 APP_PASSWORD = os.getenv('APP_PASSWORD', 'admin123')
 SESSION_TIMEOUT_MINUTES = int(os.getenv('SESSION_TIMEOUT_MINUTES', '60'))
 
-print(f"Authentication enabled with password from environment")
-print(f"Session timeout: {SESSION_TIMEOUT_MINUTES} minutes")
+# Environment detection
+FLASK_ENV = os.getenv('FLASK_ENV', 'development')
+IS_PRODUCTION = FLASK_ENV == 'production'
 
-# Create temp directories for uploads and outputs
+# Application startup logging
+print(f"DICOM Anonymizer - Environment: {FLASK_ENV}")
+print(f"Authentication enabled - Session timeout: {SESSION_TIMEOUT_MINUTES} minutes")
+
+
+# Directory setup for file operations
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'temp_uploads')
 OUTPUT_FOLDER = os.path.join(os.getcwd(), 'temp_outputs')
 
 try:
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-    print(f"Created directories: {UPLOAD_FOLDER}, {OUTPUT_FOLDER}")
+    print(f"Working directories initialized: uploads={UPLOAD_FOLDER}, outputs={OUTPUT_FOLDER}")
 except PermissionError as e:
     print(f"Permission error creating directories: {e}")
     # Fallback to system temp directory
     UPLOAD_FOLDER = tempfile.mkdtemp(prefix='dicom_uploads_')
     OUTPUT_FOLDER = tempfile.mkdtemp(prefix='dicom_outputs_')
-    print(f"Using fallback directories: {UPLOAD_FOLDER}, {OUTPUT_FOLDER}")
+    print(f"Using fallback directories: uploads={UPLOAD_FOLDER}, outputs={OUTPUT_FOLDER}")
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['OUTPUT_FOLDER'] = OUTPUT_FOLDER
 
-# File tracking for automatic cleanup
+# Session tracking for automatic cleanup (10 minutes)
 session_timestamps = {}
 
-# Global dictionary to store name mappings for consistency
+# Global cache for consistent name mappings during anonymization
 name_mapping_cache = {}
+
 
 def allowed_file(filename):
     """
     Allow all files regardless of extension.
-    We'll check if they're DICOM files using the content-based check.
+    DICOM validation is performed using content-based checks.
     """
-    # Allow all files - we'll check DICOM validity by content
     return True
 
+
 def is_dicom_file(filepath):
-    """Check if file is a DICOM file using the existing function"""
+    """Check if file is a DICOM file using content-based validation."""
     try:
         return isDICOMType(filepath)
     except:
         return False
 
+
 def safe_makedirs(path):
-    """Safely create directories with error handling"""
+    """Safely create directories with comprehensive error handling."""
     try:
         os.makedirs(path, exist_ok=True)
         return True
@@ -81,24 +95,32 @@ def safe_makedirs(path):
         print(f"Error creating directory {path}: {e}")
         return False
 
+
 def get_consistent_random_number(name):
-    """Generate a consistent random number for a given name using hash"""
+    """
+    Generate a consistent random number for a given name using SHA-256 hash.
+    This ensures the same name always gets the same anonymized value.
+    """
     if name in name_mapping_cache:
         return name_mapping_cache[name]
     
-    # Create a hash of the name and convert to a number
+    # Create a hash of the name and convert to a consistent number
     hash_obj = hashlib.sha256(name.encode('utf-8'))
     hash_hex = hash_obj.hexdigest()
-    # Take first 8 characters and convert to int
-    random_number = str(int(hash_hex[:8], 16))[-6:]  # Get last 6 digits
+    # Take first 8 characters and convert to int, get last 6 digits
+    random_number = str(int(hash_hex[:8], 16))[-6:]
     
     name_mapping_cache[name] = random_number
     return random_number
 
+
 def create_minimal_anonymization_rules():
-    """Create custom anonymization rules for minimal anonymization"""
+    """
+    Create custom anonymization rules for minimal anonymization mode.
+    Only anonymizes patient names, Patient ID, and Study ID while preserving all other data.
+    """
     def anonymize_name(dataset, tag):
-        """Replace names with consistent random numbers"""
+        """Replace names with consistent random numbers."""
         element = dataset.get(tag)
         if element is not None and element.value:
             original_name = str(element.value)
@@ -106,13 +128,13 @@ def create_minimal_anonymization_rules():
             element.value = random_number
     
     def anonymize_procedure(dataset, tag):
-        """Replace procedure descriptions with 'ANONYMIZED'"""
+        """Replace procedure descriptions with 'ANONYMIZED'."""
         element = dataset.get(tag)
         if element is not None:
             element.value = "ANONYMIZED"
     
     def anonymize_patient_id(dataset, tag):
-        """Replace Patient ID with same random number as Patient's Name"""
+        """Replace Patient ID with same random number as Patient's Name for consistency."""
         element = dataset.get(tag)
         if element is not None and element.value:
             # Get Patient's Name to generate consistent ID
@@ -129,7 +151,7 @@ def create_minimal_anonymization_rules():
                 element.value = random_number
     
     def anonymize_study_id(dataset, tag):
-        """Replace Study ID with 'ANONYMIZED'"""
+        """Replace Study ID with 'ANONYMIZED'."""
         element = dataset.get(tag)
         if element is not None:
             element.value = "ANONYMIZED"
@@ -143,9 +165,11 @@ def create_minimal_anonymization_rules():
     
     return minimal_rules
 
+
 def cleanup_non_dicom_files(uploaded_files, session_dir):
     """
-    Immediately delete non-DICOM files to save space and improve security
+    Immediately delete non-DICOM files to save storage space and improve security.
+    Returns the number of files deleted.
     """
     files_deleted = 0
     for file_info in uploaded_files:
@@ -155,15 +179,14 @@ def cleanup_non_dicom_files(uploaded_files, session_dir):
                 if os.path.exists(file_path):
                     os.remove(file_path)
                     files_deleted += 1
-                    print(f"Immediately deleted non-DICOM file: {file_info['name']}")
             except Exception as e:
                 print(f"Error deleting non-DICOM file {file_info['name']}: {e}")
     
-    # Also clean up empty directories from ZIP extraction
+    # Clean up empty extraction directories
     try:
         extract_dir = os.path.join(session_dir, 'extracted')
         if os.path.exists(extract_dir):
-            # Check if extract_dir is empty or only contains non-DICOM files
+            # Check if extract_dir only contains non-DICOM files
             remaining_dicom_files = []
             for root, dirs, files in os.walk(extract_dir):
                 for file in files:
@@ -174,15 +197,16 @@ def cleanup_non_dicom_files(uploaded_files, session_dir):
             # If no DICOM files remain in extracted directory, remove it
             if not remaining_dicom_files:
                 shutil.rmtree(extract_dir)
-                print(f"Removed empty extraction directory: {extract_dir}")
     except Exception as e:
         print(f"Error cleaning up extraction directory: {e}")
     
     return files_deleted
 
+
 def cleanup_old_sessions():
     """
-    Background task to clean up sessions older than 10 minutes
+    Background task to automatically clean up sessions older than 10 minutes.
+    Runs continuously to prevent storage accumulation.
     """
     while True:
         try:
@@ -201,19 +225,16 @@ def cleanup_old_sessions():
                     upload_session = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
                     if os.path.exists(upload_session):
                         shutil.rmtree(upload_session)
-                        print(f"Cleaned up old upload session: {session_id}")
                     
                     # Clean up output session
                     output_session = os.path.join(app.config['OUTPUT_FOLDER'], session_id)
                     if os.path.exists(output_session):
                         shutil.rmtree(output_session)
-                        print(f"Cleaned up old output session: {session_id}")
                     
                     # Clean up zip files
                     zip_file = os.path.join(app.config['OUTPUT_FOLDER'], f'{session_id}_anonymized.zip')
                     if os.path.exists(zip_file):
                         os.remove(zip_file)
-                        print(f"Cleaned up old zip file: {session_id}")
                     
                     # Remove from tracking
                     del session_timestamps[session_id]
@@ -228,95 +249,135 @@ def cleanup_old_sessions():
             print(f"Error in cleanup thread: {e}")
             time.sleep(60)  # Continue checking even if there's an error
 
-# Start the cleanup thread
-cleanup_thread = threading.Thread(target=cleanup_old_sessions, daemon=True)
-cleanup_thread.start()
 
 def login_required(f):
+    """
+    Decorator to enforce authentication on protected routes.
+    Validates session authentication and handles timeouts.
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        print(f"DEBUG: Checking authentication for {request.endpoint}")
-        print(f"DEBUG: Session contents: {dict(session)}")
-        print(f"DEBUG: Session.get('authenticated'): {session.get('authenticated')}")
-        print(f"DEBUG: Request URL: {request.url}")
-        print(f"DEBUG: Request method: {request.method}")
-        
-        # ENFORCE AUTHENTICATION - Multiple checks
+        # Check if user is authenticated
         authenticated = session.get('authenticated')
         login_time = session.get('login_time')
         
-        # Check 1: Must be authenticated
-        if not authenticated:
-            print(f"DEBUG: Authentication failed - not authenticated")
-            session.clear()  # Clear any residual session data
-            return redirect(url_for('login', next=request.url))
-        
-        # Check 2: Must have login time
-        if not login_time:
-            print(f"DEBUG: Authentication failed - no login time")
+        # Validate authentication
+        if not authenticated or not login_time:
             session.clear()
             return redirect(url_for('login', next=request.url))
         
-        # Check 3: Check session timeout
+        # Check session timeout
         current_time = time.time()
         session_age = current_time - login_time
         max_age = SESSION_TIMEOUT_MINUTES * 60
         
         if session_age > max_age:
-            print(f"DEBUG: Session expired - age: {session_age}s, max: {max_age}s")
             session.clear()
             flash('Session expired. Please login again.', 'info')
             return redirect(url_for('login'))
         
-        # Check 4: Verify session integrity
+        # Verify session integrity
         if authenticated != True:
-            print(f"DEBUG: Session integrity check failed")
             session.clear()
             return redirect(url_for('login', next=request.url))
         
-        print(f"DEBUG: Authentication successful - proceeding")
         return f(*args, **kwargs)
     return decorated_function
+
+
+# Start the cleanup background thread
+cleanup_thread = threading.Thread(target=cleanup_old_sessions, daemon=True)
+cleanup_thread.start()
+
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for container monitoring and load balancer checks."""
+    try:
+        # Basic health checks
+        checks = {
+            'upload_folder_exists': os.path.exists(app.config['UPLOAD_FOLDER']),
+            'output_folder_exists': os.path.exists(app.config['OUTPUT_FOLDER']),
+            'upload_folder_writable': os.access(app.config['UPLOAD_FOLDER'], os.W_OK),
+            'output_folder_writable': os.access(app.config['OUTPUT_FOLDER'], os.W_OK),
+            'environment': os.getenv('FLASK_ENV', 'development'),
+            'active_sessions': len(session_timestamps)
+        }
+        
+        # Check if all critical components are healthy
+        all_healthy = all([
+            checks['upload_folder_exists'],
+            checks['output_folder_exists'],
+            checks['upload_folder_writable'],
+            checks['output_folder_writable']
+        ])
+        
+        if all_healthy:
+            return jsonify({
+                'status': 'healthy',
+                'timestamp': datetime.datetime.utcnow().isoformat(),
+                'checks': checks
+            }), 200
+        else:
+            return jsonify({
+                'status': 'unhealthy',
+                'timestamp': datetime.datetime.utcnow().isoformat(),
+                'checks': checks
+            }), 503
+            
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'timestamp': datetime.datetime.utcnow().isoformat(),
+            'error': str(e)
+        }), 500
+
 
 @app.route('/')
 @login_required
 def index():
+    """Main application page."""
     return render_template('index.html')
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    """Authentication endpoint."""
     if request.method == 'POST':
         password = request.form.get('password')
-        print(f"DEBUG: Login attempt with password: {'*' * len(password) if password else 'None'}")
-        print(f"DEBUG: Expected password: {'*' * len(APP_PASSWORD)}")
         
         if password == APP_PASSWORD:
-            session.clear()  # Clear any existing session data
+            session.clear()
             session['authenticated'] = True
             session['login_time'] = time.time()
-            session.permanent = True  # Enable session persistence
+            session.permanent = True
             # Set the permanent session timeout
             app.permanent_session_lifetime = datetime.timedelta(minutes=SESSION_TIMEOUT_MINUTES)
             
-            print(f"DEBUG: Login successful, session created: {dict(session)}")
             flash('Login successful!', 'success')
             return redirect(request.args.get('next') or url_for('index'))
         else:
-            print(f"DEBUG: Login failed - incorrect password")
             flash('Invalid password. Please try again.', 'danger')
     
     return render_template('login.html')
 
+
 @app.route('/logout')
 def logout():
+    """User logout endpoint."""
     session.pop('authenticated', None)
     session.pop('login_time', None)
     flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
 
+
 @app.route('/upload', methods=['POST'])
 @login_required
 def upload_files():
+    """
+    Handle file uploads with DICOM validation and ZIP extraction.
+    Accepts all file types and validates DICOM content.
+    """
     if 'files' not in request.files:
         return jsonify({'error': 'No files uploaded'}), 400
     
@@ -331,18 +392,18 @@ def upload_files():
     # Track session timestamp for cleanup
     session_timestamps[session_id] = time.time()
     
-    # Use safe directory creation
+    # Create session directory
     if not safe_makedirs(session_dir):
         return jsonify({'error': 'Failed to create upload directory. Permission denied.'}), 500
     
     try:
         for file in files:
-            if file:  # Accept all files regardless of extension
+            if file:
                 filename = secure_filename(file.filename) if file.filename else f"unnamed_file_{len(uploaded_files)}"
                 filepath = os.path.join(session_dir, filename)
                 file.save(filepath)
                 
-                # Handle ZIP files (check by content, not just extension)
+                # Handle ZIP files (validate by content, not extension)
                 is_zip = False
                 try:
                     with zipfile.ZipFile(filepath, 'r') as test_zip:
@@ -360,27 +421,18 @@ def upload_files():
                     
                     # Remove the original ZIP file after extraction
                     os.remove(filepath)
-                    print(f"Removed original ZIP file: {filename}")
                     
                     # Find DICOM files in extracted content
                     for root, dirs, files_in_zip in os.walk(extract_dir):
                         for zip_file in files_in_zip:
                             full_path = os.path.join(root, zip_file)
-                            if is_dicom_file(full_path):
-                                uploaded_files.append({
-                                    'name': zip_file,
-                                    'path': full_path,
-                                    'is_dicom': True
-                                })
-                            else:
-                                # Add non-DICOM files to list for immediate deletion
-                                uploaded_files.append({
-                                    'name': zip_file,
-                                    'path': full_path,
-                                    'is_dicom': False
-                                })
+                            uploaded_files.append({
+                                'name': zip_file,
+                                'path': full_path,
+                                'is_dicom': is_dicom_file(full_path)
+                            })
                 else:
-                    # Check if it's a DICOM file (works for files with or without extensions)
+                    # Check if it's a DICOM file
                     is_dicom = is_dicom_file(filepath)
                     uploaded_files.append({
                         'name': filename,
@@ -388,28 +440,37 @@ def upload_files():
                         'is_dicom': is_dicom
                     })
         
-        # Immediately clean up non-DICOM files
+        # Clean up non-DICOM files immediately
         deleted_count = cleanup_non_dicom_files(uploaded_files, session_dir)
         
-        # Filter out deleted files from the response (keep only DICOM files)
+        # Filter out deleted files from the response
         dicom_files = [f for f in uploaded_files if f['is_dicom']]
+        
+        message = f'Processed {len(uploaded_files)} files.'
+        if deleted_count > 0:
+            message += f' {deleted_count} non-DICOM files were automatically removed.'
         
         return jsonify({
             'success': True,
             'session_id': session_id,
-            'files': dicom_files,  # Only return DICOM files
+            'files': dicom_files,
             'dicom_count': len(dicom_files),
             'total_count': len(uploaded_files),
             'non_dicom_deleted': deleted_count,
-            'message': f'Processed {len(uploaded_files)} files. {deleted_count} non-DICOM files were immediately deleted.' if deleted_count > 0 else f'Processed {len(uploaded_files)} files.'
+            'message': message
         })
         
     except Exception as e:
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
+
 @app.route('/anonymize', methods=['POST'])
 @login_required
 def anonymize_files():
+    """
+    Anonymize uploaded DICOM files using either minimal or standard mode.
+    Supports custom anonymization rules and preserves file structure.
+    """
     data = request.get_json()
     session_id = data.get('session_id')
     anonymization_mode = data.get('anonymization_mode', 'standard')
@@ -426,7 +487,7 @@ def anonymize_files():
     # Track output session timestamp for cleanup
     session_timestamps[output_session_id] = time.time()
     
-    # Use safe directory creation
+    # Create output directory
     if not safe_makedirs(output_session_dir):
         return jsonify({'error': 'Failed to create output directory. Permission denied.'}), 500
     
@@ -438,10 +499,9 @@ def anonymize_files():
         extra_anonymization_rules = {}
         
         if anonymization_mode == 'minimal':
-            # Use minimal anonymization - only names and procedures
+            # Use minimal anonymization - only names and IDs
             extra_anonymization_rules = create_minimal_anonymization_rules()
-            # For minimal mode, we keep all other data as-is
-            keep_private_tags = True
+            keep_private_tags = True  # For minimal mode, preserve private tags
         else:
             # Standard mode - process custom rules if provided
             if custom_rules:
@@ -449,7 +509,7 @@ def anonymize_files():
                     try:
                         # Convert string tag like "(0x0010, 0x0020)" to tuple
                         tag = eval(tag_str)
-                        # Map action name to function (simplified for web interface)
+                        # Map action name to function
                         from dicomanonymizer.simpledicomanonymizer import (
                             replace, empty, delete, keep as keep_func, replace_UID
                         )
@@ -463,8 +523,8 @@ def anonymize_files():
                         if action in action_map:
                             extra_anonymization_rules[tag] = action_map[action]
                     except Exception as e:
-                        print(f"Error processing custom rule {tag_str}: {e}")
-                        continue  # Skip invalid rules
+                        # Skip invalid rules silently in production
+                        continue
         
         # Find all DICOM files and anonymize them
         anonymized_files = []
@@ -519,11 +579,19 @@ def anonymize_files():
         })
         
     except Exception as e:
-        return jsonify({'error': f'Anonymization failed: {str(e)}', 'traceback': traceback.format_exc()}), 500
+        return jsonify({
+            'error': f'Anonymization failed: {str(e)}', 
+            'traceback': traceback.format_exc()
+        }), 500
+
 
 @app.route('/download/<session_id>')
 @login_required
 def download_anonymized(session_id):
+    """
+    Download anonymized files. Single files are served directly,
+    multiple files are packaged in a ZIP archive.
+    """
     output_dir = os.path.join(app.config['OUTPUT_FOLDER'], session_id)
     
     if not os.path.exists(output_dir):
@@ -554,7 +622,7 @@ def download_anonymized(session_id):
                 mimetype='application/octet-stream'
             )
         else:
-            # Multiple files - create ZIP as before
+            # Multiple files - create ZIP archive
             zip_path = os.path.join(app.config['OUTPUT_FOLDER'], f'{session_id}_anonymized.zip')
             
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -572,10 +640,11 @@ def download_anonymized(session_id):
     except Exception as e:
         return jsonify({'error': f'Download failed: {str(e)}'}), 500
 
+
 @app.route('/cleanup/<session_id>')
 @login_required
 def cleanup_session(session_id):
-    """Clean up session files manually"""
+    """Manual session cleanup endpoint."""
     try:
         # Clean up upload session
         upload_session = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
@@ -600,10 +669,11 @@ def cleanup_session(session_id):
     except Exception as e:
         return jsonify({'error': f'Cleanup failed: {str(e)}'}), 500
 
+
 @app.route('/status')
 @login_required
 def status():
-    """Get application status including active sessions"""
+    """Get application status including active sessions."""
     try:
         current_time = time.time()
         active_sessions = []
@@ -626,13 +696,13 @@ def status():
     except Exception as e:
         return jsonify({'error': f'Status check failed: {str(e)}'}), 500
 
-@app.errorhandler(413)
-def too_large(e):
-    return jsonify({'error': 'File too large. Maximum size is 1GB.'}), 413
 
 @app.route('/debug-session')
 def debug_session():
-    """Debug route to check session state"""
+    """Debug route to check session state (development only)."""
+    if IS_PRODUCTION:
+        return jsonify({'error': 'Debug endpoint disabled in production'}), 404
+    
     return jsonify({
         'session_data': dict(session),
         'authenticated': session.get('authenticated'),
@@ -646,14 +716,31 @@ def debug_session():
         'remote_addr': request.remote_addr
     })
 
+
+@app.errorhandler(413)
+def too_large(e):
+    """Handle file too large errors."""
+    return jsonify({'error': 'File too large. Maximum size is 1GB.'}), 413
+
+
 if __name__ == '__main__':
     print("Starting DICOM Anonymizer Web Application...")
     print(f"Upload folder: {UPLOAD_FOLDER}")
     print(f"Output folder: {OUTPUT_FOLDER}")
+    print(f"Environment: {FLASK_ENV}")
     print("Features enabled:")
-    print("  - Files without extensions accepted")
-    print("  - Automatic cleanup after 10 minutes")
-    print("  - Content-based DICOM detection")
+    print("  - Content-based DICOM validation (no file extension required)")
+    print("  - ZIP archive extraction and processing")
+    print("  - Automatic file cleanup (10 minutes)")
     print("  - Custom minimal anonymization mode")
-    print("Navigate to http://localhost:5000 in your web browser")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    print("  - Health check endpoint (/health)")
+    print("  - Session-based authentication")
+    
+    if IS_PRODUCTION:
+        print("Running in PRODUCTION mode")
+        app.run(host='0.0.0.0', port=5000, debug=False)
+    else:
+        print("Running in DEVELOPMENT mode")
+        print("Navigate to http://localhost:5000 to access the application")
+        app.run(host='0.0.0.0', port=5000, debug=True)
+

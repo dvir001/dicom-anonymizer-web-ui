@@ -2,8 +2,19 @@ services:
   dicom-anonymizer-web:
     build: .
     container_name: dicom-anonymizer
-    ports:
-      - "5000:5000"
+    # Uncomment for direct access testing
+    # ports:
+    #   - "5000:5000"
+    labels:
+        com.docker.compose.project: "docker"
+        traefik.enable: "true"
+        traefik.http.routers.dicom.tls.certresolver: "dns1"
+        traefik.http.routers.dicom.rule: "Host(`SITE`)"
+        traefik.http.routers.dicom.entrypoints: "http,https"
+        traefik.http.routers.dicom.tls: "true"
+        traefik.http.routers.dicom.middlewares: "secure-headers"
+        traefik.http.services.dicom.loadbalancer.server.port: "5000"
+        traefik.docker.network: "traefik_lan"
     volumes:
       # Mount directories for persistent storage (optional)
       - uploads_data:/app/temp_uploads:rw
@@ -11,18 +22,29 @@ services:
     environment:
       - FLASK_ENV=production
       - FLASK_APP=app.py
+      - APP_PASSWORD=${APP_PASSWORD:-secure_password_here}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-fallback-secret-key}
+      - SESSION_TIMEOUT_MINUTES=${SESSION_TIMEOUT_MINUTES:-60}
+      # Add additional Flask production settings
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
     restart: unless-stopped
+    networks:
+      - default
+      - traefik_lan
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    networks:
-      - default
 
 volumes:
   uploads_data:
     driver: local
   outputs_data:
     driver: local
+
+networks:
+  traefik_lan:
+    external: true

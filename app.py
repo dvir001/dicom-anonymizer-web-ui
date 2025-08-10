@@ -450,41 +450,23 @@ def login():
         password = request.form.get('password')
         
         # Get client fingerprint for monitoring (avoid using IP for proxy compatibility)
-        user_agent = request.headers.get('User-Agent', '')
-        accept_language = request.headers.get('Accept-Language', '')
-        accept_encoding = request.headers.get('Accept-Encoding', '')
-        fingerprint_data = f"{user_agent}|{accept_language}|{accept_encoding}"
-        client_fingerprint = hashlib.sha256(fingerprint_data.encode('utf-8')).hexdigest()[:16]
+        client_fingerprint = get_client_fingerprint(request)
         
         # If already authenticated, redirect to index
         if session.get('authenticated'):
             return redirect(url_for('index'))
         
         # Check if client is locked out
-        if client_fingerprint in login_attempts_global:
-            attempts, lockout_start = login_attempts_global[client_fingerprint]
-            if attempts >= MAX_LOGIN_ATTEMPTS:
-                # Check if lockout duration has passed
-                current_time = time.time()
-                time_since_lockout = current_time - lockout_start
-                
-                if time_since_lockout < LOGIN_LOCKOUT_DURATION:
-                    # Still locked out
-                    remaining_lockout = LOGIN_LOCKOUT_DURATION - time_since_lockout
-                    minutes, seconds = divmod(remaining_lockout, 60)
-                    print(f"Security: Login attempt blocked for fingerprint {client_fingerprint[:8]}... (locked out for {int(remaining_lockout)}s)")
-                    flash(f'Too many failed login attempts. Try again in {int(minutes)} minute(s) and {int(seconds)} second(s).', 'danger')
-                    return render_template('login.html')
-                else:
-                    # Lockout expired, clear the record
-                    del login_attempts_global[client_fingerprint]
+        is_locked_out, remaining_lockout = is_client_locked_out(client_fingerprint)
+        if is_locked_out:
+            minutes, seconds = divmod(remaining_lockout, 60)
+            print(f"Security: Login attempt blocked for fingerprint {client_fingerprint[:8]}... (locked out for {int(remaining_lockout)}s)")
+            flash(f'Too many failed login attempts. Try again in {int(minutes)} minute(s) and {int(seconds)} second(s).', 'danger')
+            return render_template('login.html')
         
         if password == APP_PASSWORD:
             # Successful login - clear any failed attempt records
-            if client_fingerprint in login_attempts_global:
-                attempts, _ = login_attempts_global[client_fingerprint]
-                del login_attempts_global[client_fingerprint]
-                print(f"Security: Successful login - cleared {attempts} failed attempts for fingerprint {client_fingerprint[:8]}...")
+            clear_failed_login_attempts(client_fingerprint)
             
             session.clear()
             session['authenticated'] = True
@@ -498,30 +480,19 @@ def login():
             return redirect(request.args.get('next') or url_for('index'))
         else:
             # Invalid password - record failed attempt
-            current_time = time.time()
-            
-            if client_fingerprint not in login_attempts_global:
-                login_attempts_global[client_fingerprint] = (1, current_time)
-                attempts = 1
-                print(f"Security: First failed login attempt for fingerprint {client_fingerprint[:8]}...")
-            else:
-                prev_attempts, first_attempt_time = login_attempts_global[client_fingerprint]
-                attempts = prev_attempts + 1
-                # Keep the original timestamp for proper lockout duration tracking
-                login_attempts_global[client_fingerprint] = (attempts, first_attempt_time)
-                print(f"Security: Failed login attempt #{attempts} for fingerprint {client_fingerprint[:8]}...")
+            attempts, is_now_locked_out = record_failed_login_attempt(client_fingerprint)
             
             # Apply exponential backoff delay
-            backoff_time = min(EXPONENTIAL_BACKOFF_BASE ** min(attempts, 6), 32)
-            print(f"Security: Applying {backoff_time}s backoff delay for attempt #{attempts}")
-            time.sleep(backoff_time)
+            backoff_delay = calculate_backoff_delay(attempts)
+            print(f"Security: Applying {backoff_delay}s backoff delay for attempt #{attempts}")
+            time.sleep(backoff_delay)
             
             # Check if this attempt triggers a lockout
-            if attempts >= MAX_LOGIN_ATTEMPTS:
-                print(f"Security: Client fingerprint {client_fingerprint[:8]}... locked out after {attempts} failed attempts")
+            if is_now_locked_out:
                 flash(f'Too many failed login attempts. Access temporarily restricted for {LOGIN_LOCKOUT_DURATION // 60} minutes.', 'danger')
             else:
-                flash('Invalid password. Please try again.', 'danger')
+                remaining_attempts = MAX_LOGIN_ATTEMPTS - attempts
+                flash(f'Invalid password. {remaining_attempts} attempt(s) remaining.', 'danger')
     
     return render_template('login.html')
 
@@ -540,7 +511,7 @@ def logout():
 def upload_files():
     """
     Handle file uploads with DICOM validation and ZIP extraction.
-    Accepts all file types and validates DICOM content.
+    Now supports adding files to existing session instead of overwriting.
     """
     if 'files' not in request.files:
         return jsonify({'error': 'No files uploaded'}), 400
@@ -549,23 +520,57 @@ def upload_files():
     if not files or files[0].filename == '':
         return jsonify({'error': 'No files selected'}), 400
     
-    uploaded_files = []
-    session_id = os.urandom(16).hex()
+    # Get existing session ID or create new one
+    session_id = request.form.get('session_id')
+    is_new_session = False
+    
+    if not session_id:
+        session_id = os.urandom(16).hex()
+        is_new_session = True
+    
     session_dir = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
+    
+    # Validate session exists if not new
+    if not is_new_session and not os.path.exists(session_dir):
+        return jsonify({'error': 'Session not found'}), 404
     
     # Track session timestamp for cleanup
     session_timestamps[session_id] = time.time()
     
-    # Create session directory
-    if not safe_makedirs(session_dir):
-        return jsonify({'error': 'Failed to create upload directory. Permission denied.'}), 500
+    # Create session directory if new
+    if is_new_session:
+        if not safe_makedirs(session_dir):
+            return jsonify({'error': 'Failed to create upload directory. Permission denied.'}), 500
+    
+    uploaded_files = []
+    
+    # Get list of existing files in session
+    existing_files = set()
+    if not is_new_session:
+        for root, dirs, files_in_dir in os.walk(session_dir):
+            for file in files_in_dir:
+                existing_files.add(file)
     
     try:
+        file_counter = len(existing_files)
+        
         for file in files:
             if file:
-                filename = secure_filename(file.filename) if file.filename else f"unnamed_file_{len(uploaded_files)}"
-                filepath = os.path.join(session_dir, filename)
+                original_filename = file.filename if file.filename else f"unnamed_file_{file_counter}"
+                filename = secure_filename(original_filename)
+                
+                # Ensure unique filename if file already exists
+                base_name, ext = os.path.splitext(filename)
+                counter = 1
+                unique_filename = filename
+                while unique_filename in existing_files or os.path.exists(os.path.join(session_dir, unique_filename)):
+                    unique_filename = f"{base_name}_{counter}{ext}"
+                    counter += 1
+                
+                filepath = os.path.join(session_dir, unique_filename)
                 file.save(filepath)
+                existing_files.add(unique_filename)
+                file_counter += 1
                 
                 # Handle ZIP files (validate by content, not extension)
                 is_zip = False
@@ -576,7 +581,7 @@ def upload_files():
                     is_zip = False
                 
                 if is_zip:
-                    extract_dir = os.path.join(session_dir, 'extracted')
+                    extract_dir = os.path.join(session_dir, f'extracted_{unique_filename}')
                     if not safe_makedirs(extract_dir):
                         return jsonify({'error': 'Failed to create extraction directory'}), 500
                     
@@ -590,18 +595,26 @@ def upload_files():
                     for root, dirs, files_in_zip in os.walk(extract_dir):
                         for zip_file in files_in_zip:
                             full_path = os.path.join(root, zip_file)
+                            # Calculate relative path from session dir for consistent structure
+                            rel_path = os.path.relpath(full_path, session_dir)
                             uploaded_files.append({
                                 'name': zip_file,
                                 'path': full_path,
-                                'is_dicom': is_dicom_file(full_path)
+                                'relative_path': rel_path,
+                                'is_dicom': is_dicom_file(full_path),
+                                'from_zip': True,
+                                'original_archive': original_filename
                             })
                 else:
                     # Check if it's a DICOM file
                     is_dicom = is_dicom_file(filepath)
                     uploaded_files.append({
-                        'name': filename,
+                        'name': unique_filename,
                         'path': filepath,
-                        'is_dicom': is_dicom
+                        'relative_path': unique_filename,
+                        'is_dicom': is_dicom,
+                        'from_zip': False,
+                        'original_archive': None
                     })
         
         # Clean up non-DICOM files immediately
@@ -610,7 +623,15 @@ def upload_files():
         # Filter out deleted files from the response
         dicom_files = [f for f in uploaded_files if f['is_dicom']]
         
-        message = f'Processed {len(uploaded_files)} files.'
+        # Get total count of all DICOM files in session (including previously uploaded)
+        total_session_dicom_count = 0
+        for root, dirs, files_in_session in os.walk(session_dir):
+            for file in files_in_session:
+                full_path = os.path.join(root, file)
+                if is_dicom_file(full_path):
+                    total_session_dicom_count += 1
+        
+        message = f'Added {len(uploaded_files)} files to batch.'
         if deleted_count > 0:
             message += f' {deleted_count} non-DICOM files were automatically removed.'
         
@@ -618,10 +639,12 @@ def upload_files():
             'success': True,
             'session_id': session_id,
             'files': dicom_files,
-            'dicom_count': len(dicom_files),
+            'new_dicom_count': len(dicom_files),
+            'total_dicom_count': total_session_dicom_count,
             'total_count': len(uploaded_files),
             'non_dicom_deleted': deleted_count,
-            'message': message
+            'message': message,
+            'is_new_session': is_new_session
         })
         
     except Exception as e:
@@ -633,7 +656,7 @@ def upload_files():
 def anonymize_files():
     """
     Anonymize uploaded DICOM files using either minimal or standard mode.
-    Supports custom anonymization rules and preserves file structure.
+    Preserves directory structure and file organization from upload.
     """
     data = request.get_json()
     session_id = data.get('session_id')
@@ -657,6 +680,7 @@ def anonymize_files():
     
     if not os.path.exists(input_dir):
         return jsonify({'error': 'Session not found'}), 404
+    
     try:
         # Process anonymization rules based on mode
         extra_anonymization_rules = {}
@@ -689,14 +713,15 @@ def anonymize_files():
                         # Skip invalid rules silently in production
                         continue
         
-        # Find all DICOM files and anonymize them
+        # Find all DICOM files and anonymize them while preserving structure
         anonymized_files = []
+        file_structure = {}  # Track original structure for reporting
         
         for root, dirs, files in os.walk(input_dir):
             for file in files:
                 input_file = os.path.join(root, file)
                 if is_dicom_file(input_file):
-                    # Create relative path structure in output
+                    # Preserve the relative path structure in output
                     rel_path = os.path.relpath(input_file, input_dir)
                     output_file = os.path.join(output_session_dir, rel_path)
                     
@@ -704,6 +729,12 @@ def anonymize_files():
                     output_dir = os.path.dirname(output_file)
                     if not safe_makedirs(output_dir):
                         return jsonify({'error': f'Failed to create output subdirectory: {output_dir}'}), 500
+                    
+                    # Track the directory structure
+                    dir_key = os.path.dirname(rel_path) if os.path.dirname(rel_path) else 'root'
+                    if dir_key not in file_structure:
+                        file_structure[dir_key] = []
+                    file_structure[dir_key].append(file)
                     
                     # Anonymize the file
                     if anonymization_mode == 'minimal':
@@ -727,7 +758,8 @@ def anonymize_files():
                     
                     anonymized_files.append({
                         'original': file,
-                        'anonymized': rel_path
+                        'anonymized': rel_path,
+                        'directory': dir_key
                     })
         
         if not anonymized_files:
@@ -737,6 +769,7 @@ def anonymize_files():
             'success': True,
             'output_session_id': output_session_id,
             'files': anonymized_files,
+            'file_structure': file_structure,
             'mode': anonymization_mode,
             'count': len(anonymized_files)
         })

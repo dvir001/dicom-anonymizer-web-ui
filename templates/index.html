@@ -18,7 +18,7 @@
         }
 
         .container {
-            max-width: 900px;
+            max-width: 1200px;
             margin: 0 auto;
             background: white;
             padding: 30px;
@@ -34,6 +34,99 @@
             font-weight: 300;
         }
 
+        /* Tab System Styles */
+        .tab-container {
+            margin-bottom: 20px;
+        }
+
+        .tab-list {
+            display: flex;
+            gap: 5px;
+            border-bottom: 2px solid #e9ecef;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .tab-button {
+            padding: 10px 20px;
+            background: #f8f9fa;
+            border: none;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: #666;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .tab-button:hover {
+            background: #e9ecef;
+        }
+
+        .tab-button.active {
+            background: white;
+            color: #007bff;
+            border-bottom: 2px solid white;
+            margin-bottom: -2px;
+        }
+
+        .tab-button .close-tab {
+            margin-left: 10px;
+            color: #999;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .tab-button .close-tab:hover {
+            color: #dc3545;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .new-tab-button {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #28a745, #1e7e34);
+            color: white;
+            border: none;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .new-tab-button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+        }
+
+        /* File Batch System */
+        .batch-info {
+            background: #e8f4f8;
+            border: 1px solid #bee5eb;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+
+        .batch-info h4 {
+            margin-top: 0;
+            color: #0c5460;
+        }
+
+        .batch-files-list {
+            max-height: 200px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+
         .upload-area {
             border: 3px dashed #ddd;
             padding: 60px 20px;
@@ -46,7 +139,13 @@
             background: #fafafa;
         }
 
-        .upload-area:hover,
+        .upload-area.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .upload-area:hover:not(.disabled),
         .upload-area.drag-over {
             border-color: #007bff;
             background: #f0f8ff;
@@ -80,7 +179,7 @@
             margin: 5px;
         }
 
-        .btn:hover {
+        .btn:hover:not(:disabled) {
             transform: translateY(-1px);
             box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
         }
@@ -100,8 +199,12 @@
             background: linear-gradient(135deg, #28a745, #1e7e34);
         }
 
+        .btn.warning {
+            background: linear-gradient(135deg, #ffc107, #e0a800);
+        }
+
         .hidden {
-            display: none;
+            display: none !important;
         }
 
         .file-item {
@@ -282,6 +385,31 @@
             font-weight: 500;
         }
 
+        /* Directory structure display */
+        .directory-tree {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .directory-item {
+            margin: 5px 0;
+            padding-left: 20px;
+        }
+
+        .directory-folder {
+            color: #0066cc;
+            font-weight: bold;
+        }
+
+        .directory-file {
+            color: #333;
+        }
+
         @media (max-width: 768px) {
             .container {
                 margin: 10px;
@@ -305,160 +433,450 @@
 </head>
 <body>
     <div class="container">
-        <h1>🏥 DICOM Anonymizer</h1>
+        <h1>🏥 DICOM Anonymizer - Batch Processing</h1>
 
         <div class="info-box">
-            <h4>📁 File Upload Information</h4>
+            <h4>📋 About DICOM Anonymizer</h4>
+            <p>A secure web-based tool for anonymizing DICOM medical imaging files while preserving essential metadata.</p>
             <ul>
-                <li><strong>All file types accepted</strong> - No extension required</li>
-                <li><strong>DICOM detection</strong> - Files are validated by content, not extension</li>
-                <li><strong>ZIP archives</strong> - Automatically extracted and processed</li>
-                <li><strong>Maximum size</strong> - 1GB per upload</li>
+                <li><strong>Two Anonymization Modes:</strong>
+                    <ul>
+                        <li>Minimal - Only removes patient names, IDs, and study IDs</li>
+                        <li>Standard - Comprehensive DICOM anonymization following industry standards</li>
+                    </ul>
+                </li>
+                <li><strong>File Support:</strong> Accepts any file type - DICOM files are automatically detected by content</li>
+                <li><strong>ZIP Archives:</strong> Automatically extracts and processes DICOM files from ZIP archives</li>
+                <li><strong>Batch Processing:</strong> Upload multiple files at once, add more before processing</li>
+                <li><strong>Structure Preservation:</strong> Maintains original folder hierarchy in anonymized output</li>
+                <li><strong>Security:</strong> Files are automatically deleted after 10 minutes</li>
             </ul>
         </div>
 
-        <div class="upload-area" id="uploadArea">
-            <div class="upload-icon">📁</div>
-            <h3>📤 Upload Files</h3>
-            <p>Click to select files or drag and drop</p>
-            <p><small>Supports DICOM files with or without extensions, and ZIP archives</small></p>
-            <input type="file" id="fileInput" multiple style="display: none;">
-        </div>
-
-        <div id="uploadProgress" class="hidden">
-            <div class="progress-bar">
-                <div class="progress-fill" id="progressFill"></div>
+        <div class="tab-container">
+            <div class="tab-list" id="tabList">
+                <button class="tab-button active" data-tab="tab-1" onclick="switchTab('tab-1')">
+                    Batch 1 <span class="close-tab" onclick="closeTab(event, 'tab-1')">×</span>
+                </button>
+                <button class="new-tab-button" onclick="createNewTab()">+ New Batch</button>
             </div>
-            <p id="progressText" style="text-align: center; color: #666;">Uploading files...</p>
-        </div>
 
-        <div id="fileList" class="hidden"></div>
-        <div id="uploadStatus" class="hidden"></div>
-
-        <div id="optionsCard" class="hidden">
-            <h3>⚙️ Anonymization Options</h3>
-            
-            <h4>🛡️ Anonymization Mode</h4>
-            <div style="margin: 15px 0;">
-                <div style="margin: 10px 0;">
-                    <input type="radio" id="minimalMode" name="anonymizationMode" value="minimal" checked>
-                    <label for="minimalMode">Custom Minimal Anonymization</label>
-                    <br><small>Only anonymizes names, Patient ID, and Study ID</small>
+            <div id="tab-1" class="tab-content active">
+                <div class="batch-info hidden" id="batchInfo-tab-1">
+                    <h4>📦 Current Batch</h4>
+                    <div id="batchStats-tab-1"></div>
+                    <div class="batch-files-list" id="batchFilesList-tab-1"></div>
                 </div>
-                
-                <div style="margin: 10px 0;">
-                    <input type="radio" id="standardMode" name="anonymizationMode" value="standard">
-                    <label for="standardMode">Standard Full Anonymization</label>
-                    <br><small>Applies comprehensive DICOM anonymization rules</small>
+
+                <div class="upload-area" id="uploadArea-tab-1">
+                    <div class="upload-icon">📁</div>
+                    <h3>📤 Upload Files to Batch</h3>
+                    <p>Click to select files or drag and drop</p>
+                    <p><small>You can add more files before starting anonymization</small></p>
+                    <input type="file" id="fileInput-tab-1" multiple style="display: none;">
                 </div>
-            </div>
 
-            <div id="standardOptions" style="display: none;">
-                <label>
-                    <input type="checkbox" id="keepPrivateTags" checked> Keep private DICOM tags
-                </label>
-                <p><small>Private tags will be preserved. Uncheck to remove private tags for maximum anonymization</small></p>
-            </div>
-            <br>
-            <button id="anonymizeBtn" class="btn" onclick="startAnonymization()">🔒 Start Anonymization</button>
-        </div>
+                <div id="uploadProgress-tab-1" class="hidden">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill-tab-1"></div>
+                    </div>
+                    <p id="progressText-tab-1" style="text-align: center; color: #666;">Uploading files...</p>
+                </div>
 
-        <div id="resultsCard" class="hidden">
-            <h3>✅ Anonymization Complete</h3>
-            <div id="resultsStatus"></div>
-            <button id="downloadBtn" class="btn">📥 Download Anonymized Files</button>
-            <button class="btn" onclick="startOver()">🔄 Start Over</button>
+                <div id="fileList-tab-1" class="hidden"></div>
+                <div id="uploadStatus-tab-1" class="hidden"></div>
 
-            <div class="cleanup-info">
-                <p><strong>Note:</strong> Files will be automatically deleted from the server after 10 minutes for security.</p>
+                <div id="optionsCard-tab-1" class="hidden">
+                    <h3>⚙️ Anonymization Options</h3>
+                    
+                    <h4>🛡️ Anonymization Mode</h4>
+                    <div style="margin: 15px 0;">
+                        <div style="margin: 10px 0;">
+                            <input type="radio" id="minimalMode-tab-1" name="anonymizationMode-tab-1" value="minimal" checked>
+                            <label for="minimalMode-tab-1">Custom Minimal Anonymization</label>
+                            <br><small>Only anonymizes names, Patient ID, and Study ID</small>
+                        </div>
+                        
+                        <div style="margin: 10px 0;">
+                            <input type="radio" id="standardMode-tab-1" name="anonymizationMode-tab-1" value="standard">
+                            <label for="standardMode-tab-1">Standard Full Anonymization</label>
+                            <br><small>Applies comprehensive DICOM anonymization rules</small>
+                        </div>
+                    </div>
+
+                    <div id="standardOptions-tab-1" style="display: none;">
+                        <label>
+                            <input type="checkbox" id="keepPrivateTags-tab-1" checked> Keep private DICOM tags
+                        </label>
+                        <p><small>Private tags will be preserved. Uncheck to remove private tags for maximum anonymization</small></p>
+                    </div>
+
+                    <div class="button-group">
+                        <button id="addMoreBtn-tab-1" class="btn warning" onclick="enableUploadForTab('tab-1')">📁 Add More Files</button>
+                        <button id="anonymizeBtn-tab-1" class="btn" onclick="startAnonymization('tab-1')">🔒 Start Anonymization</button>
+                    </div>
+                </div>
+
+                <div id="resultsCard-tab-1" class="hidden">
+                    <h3>✅ Anonymization Complete</h3>
+                    <div id="resultsStatus-tab-1"></div>
+                    <button id="downloadBtn-tab-1" class="btn">📥 Download Anonymized Files</button>
+                    <button class="btn" onclick="startOver('tab-1')">🔄 Start New Batch</button>
+
+                    <div class="cleanup-info">
+                        <p><strong>Note:</strong> Files will be automatically deleted from the server after 10 minutes for security.</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        let currentSession = null;
-        let currentOutputSession = null;
-        let isDragging = false;
+        // Global state management for tabs
+        const tabStates = {
+            'tab-1': {
+                sessionId: null,
+                outputSessionId: null,
+                uploadEnabled: true,
+                files: [],
+                totalDicomCount: 0
+            }
+        };
 
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
-        const fileList = document.getElementById('fileList');
-        const uploadStatus = document.getElementById('uploadStatus');
-        const uploadProgress = document.getElementById('uploadProgress');
-        const progressFill = document.getElementById('progressFill');
-        const progressText = document.getElementById('progressText');
-        const optionsCard = document.getElementById('optionsCard');
-        const resultsCard = document.getElementById('resultsCard');
-        const standardOptions = document.getElementById('standardOptions');
+        let activeTab = 'tab-1';
+        let tabCounter = 1;
 
-        // Show/hide standard options based on anonymization mode
-        document.querySelectorAll('input[name="anonymizationMode"]').forEach(radio => {
-            radio.addEventListener('change', function() {
-                if (this.value === 'standard') {
-                    standardOptions.style.display = 'block';
-                } else {
-                    standardOptions.style.display = 'none';
+        // Tab management functions
+        function createNewTab() {
+            tabCounter++;
+            const tabId = `tab-${tabCounter}`;
+            
+            // Initialize tab state
+            tabStates[tabId] = {
+                sessionId: null,
+                outputSessionId: null,
+                uploadEnabled: true,
+                files: [],
+                totalDicomCount: 0
+            };
+
+            // Create tab button
+            const tabButton = document.createElement('button');
+            tabButton.className = 'tab-button';
+            tabButton.dataset.tab = tabId;
+            tabButton.innerHTML = `Batch ${tabCounter} <span class="close-tab" onclick="closeTab(event, '${tabId}')">×</span>`;
+            tabButton.onclick = () => switchTab(tabId);
+
+            // Insert before the "New Tab" button
+            const newTabButton = document.querySelector('.new-tab-button');
+            newTabButton.parentNode.insertBefore(tabButton, newTabButton);
+
+            // Create tab content - build from scratch instead of cloning
+            const newTabContent = document.createElement('div');
+            newTabContent.id = tabId;
+            newTabContent.className = 'tab-content';
+            
+            // Build the tab content HTML
+            newTabContent.innerHTML = `
+                <div class="batch-info hidden" id="batchInfo-${tabId}">
+                    <h4>📦 Current Batch</h4>
+                    <div id="batchStats-${tabId}"></div>
+                    <div class="batch-files-list" id="batchFilesList-${tabId}"></div>
+                </div>
+
+                <div class="upload-area" id="uploadArea-${tabId}">
+                    <div class="upload-icon">📁</div>
+                    <h3>📤 Upload Files to Batch</h3>
+                    <p>Click to select files or drag and drop</p>
+                    <p><small>You can add more files before starting anonymization</small></p>
+                    <input type="file" id="fileInput-${tabId}" multiple style="display: none;">
+                </div>
+
+                <div id="uploadProgress-${tabId}" class="hidden">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill-${tabId}"></div>
+                    </div>
+                    <p id="progressText-${tabId}" style="text-align: center; color: #666;">Uploading files...</p>
+                </div>
+
+                <div id="fileList-${tabId}" class="hidden"></div>
+                <div id="uploadStatus-${tabId}" class="hidden"></div>
+
+                <div id="optionsCard-${tabId}" class="hidden">
+                    <h3>⚙️ Anonymization Options</h3>
+                    
+                    <h4>🛡️ Anonymization Mode</h4>
+                    <div style="margin: 15px 0;">
+                        <div style="margin: 10px 0;">
+                            <input type="radio" id="minimalMode-${tabId}" name="anonymizationMode-${tabId}" value="minimal" checked>
+                            <label for="minimalMode-${tabId}">Custom Minimal Anonymization</label>
+                            <br><small>Only anonymizes names, Patient ID, and Study ID</small>
+                        </div>
+                        
+                        <div style="margin: 10px 0;">
+                            <input type="radio" id="standardMode-${tabId}" name="anonymizationMode-${tabId}" value="standard">
+                            <label for="standardMode-${tabId}">Standard Full Anonymization</label>
+                            <br><small>Applies comprehensive DICOM anonymization rules</small>
+                        </div>
+                    </div>
+
+                    <div id="standardOptions-${tabId}" style="display: none;">
+                        <label>
+                            <input type="checkbox" id="keepPrivateTags-${tabId}" checked> Keep private DICOM tags
+                        </label>
+                        <p><small>Private tags will be preserved. Uncheck to remove private tags for maximum anonymization</small></p>
+                    </div>
+
+                    <div class="button-group">
+                        <button id="addMoreBtn-${tabId}" class="btn warning" onclick="enableUploadForTab('${tabId}')">📁 Add More Files</button>
+                        <button id="anonymizeBtn-${tabId}" class="btn" onclick="startAnonymization('${tabId}')">🔒 Start Anonymization</button>
+                    </div>
+                </div>
+
+                <div id="resultsCard-${tabId}" class="hidden">
+                    <h3>✅ Anonymization Complete</h3>
+                    <div id="resultsStatus-${tabId}"></div>
+                    <button id="downloadBtn-${tabId}" class="btn">📥 Download Anonymized Files</button>
+                    <button class="btn" onclick="startOver('${tabId}')">🔄 Start New Batch</button>
+
+                    <div class="cleanup-info">
+                        <p><strong>Note:</strong> Files will be automatically deleted from the server after 10 minutes for security.</p>
+                    </div>
+                </div>
+            `;
+            
+            // Add to container
+            document.querySelector('.tab-container').appendChild(newTabContent);
+            
+            // Setup event handlers for the new tab
+            setupTabEventHandlers(tabId);
+            
+            // Switch to new tab
+            switchTab(tabId);
+            
+            // Show initial status
+            showStatus('🚀 Ready to upload DICOM files. Drag and drop or click to select files.', 'info', tabId);
+        }
+
+        function updateElementIds(element, tabId) {
+            // Update all elements with IDs
+            const elementsWithIds = element.querySelectorAll('[id]');
+            elementsWithIds.forEach(el => {
+                const baseId = el.id.replace(/-tab-\d+/, '');
+                el.id = `${baseId}-${tabId}`;
+            });
+
+            // Update radio button names
+            const radioButtons = element.querySelectorAll('input[type="radio"]');
+            radioButtons.forEach(radio => {
+                const baseName = radio.name.replace(/-tab-\d+/, '');
+                radio.name = `${baseName}-${tabId}`;
+            });
+
+            // Update labels
+            const labels = element.querySelectorAll('label[for]');
+            labels.forEach(label => {
+                const baseFor = label.getAttribute('for').replace(/-tab-\d+/, '');
+                label.setAttribute('for', `${baseFor}-${tabId}`);
+            });
+
+            // Update onclick handlers
+            const buttons = element.querySelectorAll('button[onclick]');
+            buttons.forEach(button => {
+                const onclick = button.getAttribute('onclick');
+                if (onclick) {
+                    button.setAttribute('onclick', onclick.replace(/tab-\d+/g, tabId));
                 }
             });
-        });
+        }
 
-        // Enhanced drag and drop functionality
-        uploadArea.addEventListener('click', () => fileInput.click());
-        
-        // Prevent default drag behaviors
-        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            document.addEventListener(eventName, preventDefaults, false);
-            uploadArea.addEventListener(eventName, preventDefaults, false);
-        });
+        function resetTabContent(tabContent, tabId) {
+            // Hide all sections except upload area
+            const batchInfo = tabContent.querySelector(`#batchInfo-${tabId}`);
+            const fileList = tabContent.querySelector(`#fileList-${tabId}`);
+            const uploadStatus = tabContent.querySelector(`#uploadStatus-${tabId}`);
+            const uploadProgress = tabContent.querySelector(`#uploadProgress-${tabId}`);
+            const optionsCard = tabContent.querySelector(`#optionsCard-${tabId}`);
+            const resultsCard = tabContent.querySelector(`#resultsCard-${tabId}`);
+            
+            if (batchInfo) batchInfo.classList.add('hidden');
+            if (fileList) fileList.classList.add('hidden');
+            if (uploadStatus) uploadStatus.classList.add('hidden');
+            if (uploadProgress) uploadProgress.classList.add('hidden');
+            if (optionsCard) optionsCard.classList.add('hidden');
+            if (resultsCard) resultsCard.classList.add('hidden');
+            
+            // Enable upload area
+            const uploadArea = tabContent.querySelector(`#uploadArea-${tabId}`);
+            if (uploadArea) {
+                uploadArea.classList.remove('disabled');
+            }
+            
+            // Reset anonymize button state
+            const anonymizeBtn = tabContent.querySelector(`#anonymizeBtn-${tabId}`);
+            if (anonymizeBtn) {
+                anonymizeBtn.disabled = false;
+                anonymizeBtn.textContent = '🔒 Start Anonymization';
+            }
+            
+            // Clear file input
+            const fileInput = tabContent.querySelector(`#fileInput-${tabId}`);
+            if (fileInput) {
+                fileInput.value = '';
+            }
+            
+            // Setup event handlers
+            setupTabEventHandlers(tabId);
+        }
 
-        // Highlight drop area when item is dragged over it
-        ['dragenter', 'dragover'].forEach(eventName => {
-            uploadArea.addEventListener(eventName, highlight, false);
-        });
+        function switchTab(tabId) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
 
-        ['dragleave', 'drop'].forEach(eventName => {
-            uploadArea.addEventListener(eventName, unhighlight, false);
-        });
+            // Remove active class from all tab buttons
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('active');
+            });
 
-        // Handle dropped files
-        uploadArea.addEventListener('drop', handleDrop, false);
-        fileInput.addEventListener('change', handleFileSelect);
+            // Show selected tab
+            document.getElementById(tabId).classList.add('active');
+            
+            // Activate tab button
+            document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+            
+            activeTab = tabId;
+        }
+
+        function closeTab(event, tabId) {
+            event.stopPropagation();
+            
+            // Don't allow closing the last tab
+            const tabButtons = document.querySelectorAll('.tab-button');
+            if (tabButtons.length <= 1) {
+                alert('Cannot close the last tab');
+                return;
+            }
+
+            // Clean up session if exists
+            const state = tabStates[tabId];
+            if (state.sessionId) {
+                fetch(`/cleanup/${state.sessionId}`);
+            }
+            if (state.outputSessionId) {
+                fetch(`/cleanup/${state.outputSessionId}`);
+            }
+
+            // Remove tab button and content
+            document.querySelector(`[data-tab="${tabId}"]`).remove();
+            document.getElementById(tabId).remove();
+            
+            // Delete state
+            delete tabStates[tabId];
+            
+            // Switch to first available tab if this was active
+            if (activeTab === tabId) {
+                const firstTab = document.querySelector('.tab-button');
+                if (firstTab) {
+                    const firstTabId = firstTab.dataset.tab;
+                    switchTab(firstTabId);
+                }
+            }
+        }
+
+        function setupTabEventHandlers(tabId) {
+            const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            const fileInput = document.getElementById(`fileInput-${tabId}`);
+
+            // Remove old listeners by cloning
+            const newUploadArea = uploadArea.cloneNode(true);
+            uploadArea.parentNode.replaceChild(newUploadArea, uploadArea);
+            
+            const newFileInput = fileInput.cloneNode(true);
+            fileInput.parentNode.replaceChild(newFileInput, fileInput);
+
+            // Re-get elements after cloning
+            const finalUploadArea = document.getElementById(`uploadArea-${tabId}`);
+            const finalFileInput = document.getElementById(`fileInput-${tabId}`);
+
+            // Click handler
+            finalUploadArea.addEventListener('click', () => {
+                if (!finalUploadArea.classList.contains('disabled')) {
+                    finalFileInput.click();
+                }
+            });
+
+            // Drag and drop handlers
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                document.addEventListener(eventName, preventDefaults, false);
+                finalUploadArea.addEventListener(eventName, preventDefaults, false);
+            });
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                finalUploadArea.addEventListener(eventName, (e) => highlight(e, tabId), false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                finalUploadArea.addEventListener(eventName, (e) => unhighlight(e, tabId), false);
+            });
+
+            finalUploadArea.addEventListener('drop', (e) => handleDrop(e, tabId), false);
+            finalFileInput.addEventListener('change', (e) => handleFileSelect(e, tabId));
+
+            // Radio button handlers for anonymization mode
+            document.querySelectorAll(`input[name="anonymizationMode-${tabId}"]`).forEach(radio => {
+                radio.addEventListener('change', function() {
+                    const standardOptions = document.getElementById(`standardOptions-${tabId}`);
+                    if (this.value === 'standard') {
+                        standardOptions.style.display = 'block';
+                    } else {
+                        standardOptions.style.display = 'none';
+                    }
+                });
+            });
+        }
 
         function preventDefaults(e) {
             e.preventDefault();
             e.stopPropagation();
         }
 
-        function highlight(e) {
-            uploadArea.classList.add('drag-over');
-            if (e.type === 'dragenter') {
-                uploadArea.classList.add('drag-active');
-                isDragging = true;
+        function highlight(e, tabId) {
+            const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            if (!uploadArea.classList.contains('disabled')) {
+                uploadArea.classList.add('drag-over');
+                if (e.type === 'dragenter') {
+                    uploadArea.classList.add('drag-active');
+                }
             }
         }
 
-        function unhighlight(e) {
+        function unhighlight(e, tabId) {
+            const uploadArea = document.getElementById(`uploadArea-${tabId}`);
             uploadArea.classList.remove('drag-over');
-            if (e.type === 'dragleave' && !isDragging) {
+            if (e.type === 'drop') {
                 uploadArea.classList.remove('drag-active');
-            } else if (e.type === 'drop') {
-                uploadArea.classList.remove('drag-active');
-                isDragging = false;
             }
         }
 
-        function handleDrop(e) {
+        function handleDrop(e, tabId) {
+            const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            if (uploadArea.classList.contains('disabled')) {
+                return;
+            }
+            
             const dt = e.dataTransfer;
             const files = Array.from(dt.files);
             
             if (files.length > 0) {
-                uploadFiles(files);
+                uploadFiles(files, tabId);
             }
         }
 
-        function handleFileSelect(e) {
+        function handleFileSelect(e, tabId) {
             const files = Array.from(e.target.files);
-            uploadFiles(files);
+            uploadFiles(files, tabId);
         }
 
         function formatFileSize(bytes) {
@@ -469,13 +887,24 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
-        async function uploadFiles(files = []) {
+        async function uploadFiles(files = [], tabId) {
             if (files.length === 0) return;
+            
+            const state = tabStates[tabId];
+            if (!state.uploadEnabled) {
+                showStatus('⚠️ Upload is disabled. Please start a new batch.', 'warning', tabId);
+                return;
+            }
 
             const formData = new FormData();
             files.forEach(file => formData.append('files', file));
+            
+            // Include existing session ID if we're adding to a batch
+            if (state.sessionId) {
+                formData.append('session_id', state.sessionId);
+            }
 
-            showStatus('📤 Uploading files...', 'info');
+            showStatus('📤 Uploading files to batch...', 'info', tabId);
 
             try {
                 const response = await fetch('/upload', {
@@ -486,64 +915,139 @@
                 const result = await response.json();
 
                 if (result.success) {
-                    currentSession = result.session_id;
-                    displayUploadedFiles(result.files);
-
-                    if (result.dicom_count > 0) {
-                        showStatus(`✅ Successfully uploaded ${result.total_count} files (${result.dicom_count} DICOM files detected)`, 'success');
-                        optionsCard.classList.remove('hidden');
+                    // Update state
+                    state.sessionId = result.session_id;
+                    state.totalDicomCount = result.total_dicom_count;
+                    
+                    // Add new files to state
+                    if (result.is_new_session) {
+                        state.files = result.files;
                     } else {
-                        showStatus(`⚠️ Uploaded ${result.total_count} files, but no DICOM files were detected. Please check your files.`,
-                        'warning');
+                        state.files = state.files.concat(result.files);
+                    }
+                    
+                    displayBatchInfo(tabId);
+                    displayUploadedFiles(state.files, tabId);
+
+                    if (state.totalDicomCount > 0) {
+                        showStatus(`✅ Batch contains ${state.totalDicomCount} DICOM files. You can add more or start processing.`, 'success', tabId);
+                        document.getElementById(`optionsCard-${tabId}`).classList.remove('hidden');
+                    } else {
+                        showStatus(`⚠️ No DICOM files detected in batch. Please add DICOM files.`, 'warning', tabId);
                     }
                 } else {
-                    showStatus(`❌ Upload failed: ${result.error}`, 'error');
+                    showStatus(`❌ Upload failed: ${result.error}`, 'error', tabId);
                 }
             } catch (error) {
-                showStatus(`❌ Upload failed: ${error.message}`, 'error');
+                showStatus(`❌ Upload failed: ${error.message}`, 'error', tabId);
             }
         }
 
-        function displayUploadedFiles(files) {
-            fileList.innerHTML = '<h4>📋 Uploaded Files:</h4>';
+        function displayBatchInfo(tabId) {
+            const state = tabStates[tabId];
+            const batchInfo = document.getElementById(`batchInfo-${tabId}`);
+            const batchStats = document.getElementById(`batchStats-${tabId}`);
+            
+            batchInfo.classList.remove('hidden');
+            batchStats.innerHTML = `
+                <p><strong>Session ID:</strong> ${state.sessionId.substring(0, 8)}...</p>
+                <p><strong>Total DICOM Files:</strong> ${state.totalDicomCount}</p>
+                <p><strong>Status:</strong> Ready for processing</p>
+            `;
+        }
+
+        function displayUploadedFiles(files, tabId) {
+            const fileList = document.getElementById(`fileList-${tabId}`);
+            const batchFilesList = document.getElementById(`batchFilesList-${tabId}`);
+            
+            fileList.innerHTML = '<h4>📋 Files in Current Batch:</h4>';
+            batchFilesList.innerHTML = '';
 
             if (files.length === 0) {
-                fileList.innerHTML += '<p>No files uploaded.</p>';
+                fileList.innerHTML += '<p>No files in batch.</p>';
                 return;
             }
 
+            // Group files by directory/archive
+            const fileGroups = {};
             files.forEach(file => {
-                const fileItem = document.createElement('div');
-                fileItem.className = `file-item ${file.is_dicom ? 'dicom' : 'non-dicom'}`;
+                const groupKey = file.from_zip ? file.original_archive : 'Direct Upload';
+                if (!fileGroups[groupKey]) {
+                    fileGroups[groupKey] = [];
+                }
+                fileGroups[groupKey].push(file);
+            });
 
-                const fileName = file.name;
-                const fileStatus = file.is_dicom ? 'DICOM' : 'Not DICOM';
-                const fileIcon = file.is_dicom ? '🏥' : '📄';
+            // Display grouped files
+            Object.keys(fileGroups).forEach(group => {
+                const groupDiv = document.createElement('div');
+                groupDiv.style.marginBottom = '15px';
+                
+                const groupHeader = document.createElement('h5');
+                groupHeader.style.color = '#0066cc';
+                groupHeader.textContent = group;
+                groupDiv.appendChild(groupHeader);
+                
+                fileGroups[group].forEach(file => {
+                    const fileItem = document.createElement('div');
+                    fileItem.className = `file-item ${file.is_dicom ? 'dicom' : 'non-dicom'}`;
 
-                fileItem.innerHTML = `
+                    const fileName = file.relative_path || file.name;
+                    const fileStatus = file.is_dicom ? 'DICOM' : 'Not DICOM';
+                    const fileIcon = file.is_dicom ? '🏥' : '📄';
+
+                    fileItem.innerHTML = `
                         <span>${fileIcon} ${fileName}</span>
-                        <span class="badge">${fileStatus}</span>
+                        <span class="badge ${file.is_dicom ? 'dicom' : 'non-dicom'}">${fileStatus}</span>
                     `;
-                fileList.appendChild(fileItem);
+                    groupDiv.appendChild(fileItem);
+                    
+                    // Also add to batch files list (summary)
+                    if (file.is_dicom) {
+                        const summaryItem = document.createElement('div');
+                        summaryItem.style.padding = '2px 5px';
+                        summaryItem.innerHTML = `🏥 ${fileName}`;
+                        batchFilesList.appendChild(summaryItem);
+                    }
+                });
+                
+                fileList.appendChild(groupDiv);
             });
 
             fileList.classList.remove('hidden');
         }
 
-        async function startAnonymization() {
-            if (!currentSession) {
-                showStatus('❌ No files uploaded', 'error');
+        function enableUploadForTab(tabId) {
+            const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            uploadArea.classList.remove('disabled');
+            showStatus('📁 Upload enabled. Add more files to the batch.', 'info', tabId);
+        }
+
+        function disableUploadForTab(tabId) {
+            const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            uploadArea.classList.add('disabled');
+            tabStates[tabId].uploadEnabled = false;
+        }
+
+        async function startAnonymization(tabId) {
+            const state = tabStates[tabId];
+            
+            if (!state.sessionId) {
+                showStatus('❌ No files uploaded', 'error', tabId);
                 return;
             }
 
-            const anonymizeBtn = document.getElementById('anonymizeBtn');
+            // Disable upload area
+            disableUploadForTab(tabId);
+
+            const anonymizeBtn = document.getElementById(`anonymizeBtn-${tabId}`);
             anonymizeBtn.disabled = true;
             anonymizeBtn.textContent = '🔄 Anonymizing...';
 
-            const keepPrivateTags = document.getElementById('keepPrivateTags').checked;
-            const anonymizationMode = document.querySelector('input[name="anonymizationMode"]:checked')?.value || 'standard';
+            const keepPrivateTags = document.getElementById(`keepPrivateTags-${tabId}`).checked;
+            const anonymizationMode = document.querySelector(`input[name="anonymizationMode-${tabId}"]:checked`)?.value || 'standard';
 
-            showStatus('⚙️ Anonymizing DICOM files...', 'info');
+            showStatus('⚙️ Anonymizing DICOM files in batch...', 'info', tabId);
 
             try {
                 const response = await fetch('/anonymize', {
@@ -552,7 +1056,7 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        session_id: currentSession,
+                        session_id: state.sessionId,
                         anonymization_mode: anonymizationMode,
                         keep_private_tags: keepPrivateTags,
                         custom_rules: {}
@@ -562,106 +1066,147 @@
                 const result = await response.json();
 
                 if (result.success) {
-                    currentOutputSession = result.output_session_id;
-                    showAnonymizationResults(result);
-                } else {
-                    showStatus(`❌ Anonymization failed: ${result.error}`, 'error');
+                    state.outputSessionId = result.output_session_id;
+                    showAnonymizationResults(result, tabId);
+                    // Reset button state after success
                     anonymizeBtn.disabled = false;
                     anonymizeBtn.textContent = '🔒 Start Anonymization';
+                } else {
+                    showStatus(`❌ Anonymization failed: ${result.error}`, 'error', tabId);
+                    anonymizeBtn.disabled = false;
+                    anonymizeBtn.textContent = '🔒 Start Anonymization';
+                    enableUploadForTab(tabId);
                 }
             } catch (error) {
-                showStatus(`❌ Anonymization failed: ${error.message}`, 'error');
+                showStatus(`❌ Anonymization failed: ${error.message}`, 'error', tabId);
                 anonymizeBtn.disabled = false;
                 anonymizeBtn.textContent = '🔒 Start Anonymization';
+                enableUploadForTab(tabId);
             }
         }
 
-        function showAnonymizationResults(result) {
-            const resultsStatus = document.getElementById('resultsStatus');
+        function showAnonymizationResults(result, tabId) {
+            const resultsStatus = document.getElementById(`resultsStatus-${tabId}`);
+            
+            // Build directory structure display
+            let structureHtml = '';
+            if (result.file_structure) {
+                structureHtml = '<div class="directory-tree"><h5>📂 Preserved Structure:</h5>';
+                Object.keys(result.file_structure).forEach(dir => {
+                    if (dir === 'root') {
+                        structureHtml += '<div class="directory-item">📁 /</div>';
+                    } else {
+                        structureHtml += `<div class="directory-item"><span class="directory-folder">📁 ${dir}/</span></div>`;
+                    }
+                    result.file_structure[dir].forEach(file => {
+                        structureHtml += `<div class="directory-item directory-file">  └─ 🏥 ${file}</div>`;
+                    });
+                });
+                structureHtml += '</div>';
+            }
+            
             resultsStatus.innerHTML = `
-                    <div class="status success">
-                        ✅ Successfully anonymized ${result.count} DICOM files - Download starting automatically...
-                    </div>
-                    <div class="file-list">
-                        <h4>🔒 Anonymized Files:</h4>
-                        ${result.files.map(file => `
-                            <div class="file-item dicom">
-                                <span>🏥 ${file.original}</span>
-                                <span>✅ Anonymized</span>
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
+                <div class="status success">
+                    ✅ Successfully anonymized ${result.count} DICOM files - Download starting automatically...
+                </div>
+                ${structureHtml}
+                <div class="file-list">
+                    <h4>🔒 Anonymized Files:</h4>
+                    ${result.files.map(file => `
+                        <div class="file-item dicom">
+                            <span>🏥 ${file.anonymized}</span>
+                            <span>✅ Anonymized</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
 
-            const downloadBtn = document.getElementById('downloadBtn');
-            downloadBtn.onclick = () => downloadAnonymizedFiles();
+            const downloadBtn = document.getElementById(`downloadBtn-${tabId}`);
+            downloadBtn.onclick = () => downloadAnonymizedFiles(tabId);
 
-            optionsCard.classList.add('hidden');
-            resultsCard.classList.remove('hidden');
+            document.getElementById(`optionsCard-${tabId}`).classList.add('hidden');
+            document.getElementById(`resultsCard-${tabId}`).classList.remove('hidden');
 
             // Automatically start download after a short delay
             setTimeout(() => {
-                downloadAnonymizedFiles();
+                downloadAnonymizedFiles(tabId);
                 // Update the status message after download starts
                 const statusDiv = resultsStatus.querySelector('.status.success');
                 if (statusDiv) {
                     statusDiv.innerHTML = '✅ Successfully anonymized ' + result.count + ' DICOM files - Download started!';
                 }
-            }, 1500); // 1.5 second delay to show the completion message first
+            }, 1500);
         }
 
-        function downloadAnonymizedFiles() {
-            if (currentOutputSession) {
-                window.location.href = `/download/${currentOutputSession}`;
-                // Clean up after a delay (files will also auto-cleanup after 10 minutes)
+        function downloadAnonymizedFiles(tabId) {
+            const state = tabStates[tabId];
+            if (state.outputSessionId) {
+                window.location.href = `/download/${state.outputSessionId}`;
+                // Clean up after a delay
                 setTimeout(() => {
-                    fetch(`/cleanup/${currentOutputSession}`);
-                    fetch(`/cleanup/${currentSession}`);
+                    fetch(`/cleanup/${state.outputSessionId}`);
+                    fetch(`/cleanup/${state.sessionId}`);
                 }, 3000);
             }
         }
 
-        function startOver() {
+        function startOver(tabId) {
+            const state = tabStates[tabId];
+            
             // Clean up sessions
-            if (currentOutputSession) {
-                fetch(`/cleanup/${currentOutputSession}`);
+            if (state.outputSessionId) {
+                fetch(`/cleanup/${state.outputSessionId}`);
             }
-            if (currentSession) {
-                fetch(`/cleanup/${currentSession}`);
+            if (state.sessionId) {
+                fetch(`/cleanup/${state.sessionId}`);
             }
+
+            // Reset state
+            tabStates[tabId] = {
+                sessionId: null,
+                outputSessionId: null,
+                uploadEnabled: true,
+                files: [],
+                totalDicomCount: 0
+            };
 
             // Reset UI
-            currentSession = null;
-            currentOutputSession = null;
-            fileInput.value = '';
-            fileList.classList.add('hidden');
-            optionsCard.classList.add('hidden');
-            resultsCard.classList.add('hidden');
-            uploadStatus.classList.add('hidden');
-            uploadProgress.classList.add('hidden');
+            const tabContent = document.getElementById(tabId);
+            
+            // Reset anonymize button BEFORE resetTabContent
+            const anonymizeBtn = document.getElementById(`anonymizeBtn-${tabId}`);
+            if (anonymizeBtn) {
+                anonymizeBtn.disabled = false;
+                anonymizeBtn.textContent = '🔒 Start Anonymization';
+            }
+            
+            resetTabContent(tabContent, tabId);
+            
+            // Clear file input
+            document.getElementById(`fileInput-${tabId}`).value = '';
+            
+            // Hide all sections
+            document.getElementById(`batchInfo-${tabId}`).classList.add('hidden');
+            document.getElementById(`fileList-${tabId}`).classList.add('hidden');
+            document.getElementById(`optionsCard-${tabId}`).classList.add('hidden');
+            document.getElementById(`resultsCard-${tabId}`).classList.add('hidden');
+            document.getElementById(`uploadStatus-${tabId}`).classList.add('hidden');
+            document.getElementById(`uploadProgress-${tabId}`).classList.add('hidden');
+            
+            showStatus('🚀 Ready to upload a new batch of files.', 'info', tabId);
         }
 
-        function showStatus(message, type) {
+        function showStatus(message, type, tabId) {
+            const uploadStatus = document.getElementById(`uploadStatus-${tabId}`);
             uploadStatus.className = `status ${type}`;
             uploadStatus.innerHTML = message;
             uploadStatus.classList.remove('hidden');
         }
 
-        // Show a welcome message on page load
+        // Initialize first tab on page load
         window.addEventListener('load', () => {
-            showStatus('🚀 Ready to upload files. No file extensions required - DICOM files are detected by content.', 'info');
-            
-            // Add event listeners for anonymization mode radio buttons
-            document.querySelectorAll('input[name="anonymizationMode"]').forEach(radio => {
-                radio.addEventListener('change', function() {
-                    const standardOptions = document.getElementById('standardOptions');
-                    if (this.value === 'standard') {
-                        standardOptions.style.display = 'block';
-                    } else {
-                        standardOptions.style.display = 'none';
-                    }
-                });
-            });
+            setupTabEventHandlers('tab-1');
+            showStatus('🚀 Ready to upload DICOM files. Drag and drop or click to select files.', 'info', 'tab-1');
         });
     </script>
 </body>

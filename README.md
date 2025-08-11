@@ -1,12 +1,42 @@
-# DicomAnonymizer
+# DicomAnonymizer - Web Application Fork
 
-Python package to anonymize DICOM files.
-The anonymization answer to the standard . More information about dicom fields for anonymization can be found [here](https://dicom.nema.org/medical/dicom/current/output/html/part15.html#table_E.1-1).
+> **🌐 Enhanced Fork**: This is a web-enabled fork of the original [KitwareMedical/dicom-anonymizer](https://github.com/KitwareMedical/dicom-anonymizer) that adds a complete Flask web application with authentication, batch processing, and production-ready deployment features.
+
+## Features
+
+### 🔧 Original Functionality
+Python package to anonymize DICOM files with full command-line interface support.
+The anonymization follows the DICOM standard. More information about dicom fields for anonymization can be found [here](https://dicom.nema.org/medical/dicom/current/output/html/part15.html#table_E.1-1).
+
+### 🌐 New Web Application Features
+- **Web Interface**: Modern, responsive web UI for DICOM anonymization
+- **Batch Processing**: Upload and process multiple files with organized batch management
+- **Authentication**: Secure login system with brute force protection
+- **Docker Ready**: Complete containerization with production deployment support
+- **Real-time Processing**: Live progress updates and status monitoring
+
+## Quick Start
+
+**Web Application (Docker)**:
+```bash
+git clone https://github.com/dvir001/dicom-anonymizer.git
+cd dicom-anonymizer
+cp .env.example .env  # Edit with your settings
+docker-compose up -d
+```
+
+**Original CLI Tool**:
+```bash
+pip install dicom-anonymizer
+dicom-anonymizer input_folder output_folder
+```
+
+## DICOM Field Processing
 
 The default behaviour of this package is to anonymize DICOM fields referenced in the 2023e DICOM standard. These fields are referenced in [dicomfields](dicomanonymizer/dicom_anonymization_databases/dicomfields_2023.py).  
 Another standard can be selected, see *Change the DICOM anonymization standard*. 
 
-Dicom fields are separated into different groups. Each groups will be anonymized in a different way.
+Dicom fields are separated into different groups. Each group will be anonymized in a different way.
 
 | Group | Action | Action definition |
 | --- | --- | --- |

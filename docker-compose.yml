@@ -1,27 +1,27 @@
 services:
   dicom-anonymizer:
     build: .
-    container_name: dicom-anonymizer
+    container_name: ${CONTAINER_NAME:-dicom-anonymizer}
     # Uncomment for direct access testing
     # ports:
-    #   - "5000:5000"
+    #   - "${APP_PORT:-5000}:5000"
     labels:
-        com.docker.compose.project: "docker"
-        traefik.enable: "true"
-        traefik.http.routers.dicom.tls.certresolver: "dns1"
-        traefik.http.routers.dicom.rule: "Host(`SITE`)"
-        traefik.http.routers.dicom.entrypoints: "http,https"
-        traefik.http.routers.dicom.tls: "true"
-        traefik.http.routers.dicom.middlewares: "secure-headers"
-        traefik.http.services.dicom.loadbalancer.server.port: "5000"
-        traefik.docker.network: "traefik_lan"
+        com.docker.compose.project: "${COMPOSE_PROJECT_NAME:-docker}"
+        traefik.enable: "${TRAEFIK_ENABLE:-true}"
+        traefik.http.routers.dicom.tls.certresolver: "${TRAEFIK_CERT_RESOLVER:-dns1}"
+        traefik.http.routers.dicom.rule: "Host(`${TRAEFIK_HOST:-SITE}`)"
+        traefik.http.routers.dicom.entrypoints: "${TRAEFIK_ENTRYPOINTS:-http,https}"
+        traefik.http.routers.dicom.tls: "${TRAEFIK_TLS:-true}"
+        traefik.http.routers.dicom.middlewares: "${TRAEFIK_MIDDLEWARES:-secure-headers}"
+        traefik.http.services.dicom.loadbalancer.server.port: "${TRAEFIK_SERVICE_PORT:-5000}"
+        traefik.docker.network: "${TRAEFIK_NETWORK:-traefik_lan}"
     volumes:
       # Mount directories for persistent storage (optional)
-      - dicom_uploads:/app/temp_uploads
-      - dicom_outputs:/app/temp_outputs
+      - ${UPLOAD_VOLUME_NAME:-dicom_uploads}:/app/temp_uploads
+      - ${OUTPUT_VOLUME_NAME:-dicom_outputs}:/app/temp_outputs
     environment:
-      - FLASK_ENV=production
-      - FLASK_APP=app.py
+      - FLASK_ENV=${FLASK_ENV:-production}
+      - FLASK_APP=${FLASK_APP:-app.py}
       - APP_PASSWORD=${APP_PASSWORD:-secure_password_here}
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-fallback-secret-key}
       - SESSION_TIMEOUT_MINUTES=${SESSION_TIMEOUT_MINUTES:-60}
@@ -30,33 +30,33 @@ services:
       - LOGIN_LOCKOUT_DURATION=${LOGIN_LOCKOUT_DURATION:-300}
       - EXPONENTIAL_BACKOFF_BASE=${EXPONENTIAL_BACKOFF_BASE:-2}
       # Add additional Flask production settings
-      - PYTHONUNBUFFERED=1
-      - PYTHONDONTWRITEBYTECODE=1
-    restart: unless-stopped
+      - PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-1}
+      - PYTHONDONTWRITEBYTECODE=${PYTHONDONTWRITEBYTECODE:-1}
+    restart: ${RESTART_POLICY:-unless-stopped}
     networks:
       - default
-      - traefik_lan
+      - ${TRAEFIK_NETWORK:-traefik_lan}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      interval: ${HEALTH_CHECK_INTERVAL:-30s}
+      timeout: ${HEALTH_CHECK_TIMEOUT:-10s}
+      retries: ${HEALTH_CHECK_RETRIES:-3}
+      start_period: ${HEALTH_CHECK_START_PERIOD:-40s}
 
 volumes:
-  dicom_uploads:
-    driver: local
+  ${UPLOAD_VOLUME_NAME:-dicom_uploads}:
+    driver: ${VOLUME_DRIVER:-local}
     driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: size=2G,noexec,nosuid,nodev
-  dicom_outputs:
-    driver: local
+      type: ${VOLUME_TYPE:-tmpfs}
+      device: ${VOLUME_DEVICE:-tmpfs}
+      o: ${VOLUME_OPTIONS:-size=2G,noexec,nosuid,nodev}
+  ${OUTPUT_VOLUME_NAME:-dicom_outputs}:
+    driver: ${VOLUME_DRIVER:-local}
     driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: size=2G,noexec,nosuid,nodev
+      type: ${VOLUME_TYPE:-tmpfs}
+      device: ${VOLUME_DEVICE:-tmpfs}
+      o: ${VOLUME_OPTIONS:-size=2G,noexec,nosuid,nodev}
 
 networks:
-  traefik_lan:
-    external: true
+  ${TRAEFIK_NETWORK:-traefik_lan}:
+    external: ${TRAEFIK_NETWORK_EXTERNAL:-true}

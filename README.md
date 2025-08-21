@@ -101,12 +101,31 @@ python app.py
 
 ### Option 3: Production Deployment
 For production deployment, the Docker setup includes:
-- Traefik reverse proxy labels for SSL termination
+- Nginx reverse proxy configuration for SSL termination
 - Health checks and monitoring
 - Persistent volume mounts for uploads
 - Security hardening and environment isolation
 
 Configure the `.env` file with your production settings and domain information.
+
+#### Nginx Configuration
+The application includes automatic HTTPS detection when behind a reverse proxy. Ensure your nginx configuration includes the necessary proxy headers:
+
+```nginx
+server {
+    location / {
+        proxy_pass http://dicom-anonymizer:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Prefix /;
+    }
+}
+```
+
+The `X-Forwarded-Proto` header is essential for proper HTTPS redirect detection.
 
 
 # Local Development Setup

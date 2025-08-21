@@ -13,6 +13,7 @@ import datetime
 import hashlib
 from flask import Flask, render_template, request, send_file, jsonify, session, redirect, url_for, flash
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 import zipfile
 from dicomanonymizer.simpledicomanonymizer import anonymize_dicom_file
 from dicomanonymizer.anonymizer import isDICOMType
@@ -28,6 +29,16 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'dicom-anonymizer-fallback-secret-key-2024')
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB max file size
+
+# Configure proxy support for proper HTTPS detection behind reverse proxies
+# This enables the app to trust X-Forwarded-* headers from nginx
+app.wsgi_app = ProxyFix(
+    app.wsgi_app, 
+    x_for=1,      # Trust X-Forwarded-For
+    x_proto=1,    # Trust X-Forwarded-Proto (for HTTPS detection)
+    x_host=1,     # Trust X-Forwarded-Host
+    x_prefix=1    # Trust X-Forwarded-Prefix
+)
 
 # Security and session configuration
 APP_PASSWORD = os.getenv('APP_PASSWORD', 'admin123')
@@ -65,6 +76,25 @@ session_timestamps = {}
 
 # Global cache for consistent name mappings during anonymization
 name_mapping_cache = {}
+
+
+def secure_url_for(endpoint, **values):
+    """
+    Generate URLs with proper HTTPS detection for reverse proxy environments.
+    This function ensures redirects use the correct protocol (HTTP/HTTPS)
+    by checking the X-Forwarded-Proto header.
+    """
+    # Check if we're behind a proxy with HTTPS
+    if request.headers.get('X-Forwarded-Proto') == 'https':
+        # Force HTTPS scheme for URL generation
+        return url_for(endpoint, _external=True, _scheme='https', **values)
+    elif request.headers.get('X-Forwarded-Proto') == 'http':
+        # Force HTTP scheme for URL generation
+        return url_for(endpoint, _external=True, _scheme='http', **values)
+    else:
+        # Fallback to default behavior (useful for local development)
+        return url_for(endpoint, **values)
+
 
 # Brute force protection - tracks failed login attempts by client fingerprint
 login_attempts_global = {}
@@ -367,7 +397,7 @@ def login_required(f):
         # Validate authentication
         if not authenticated or not login_time:
             session.clear()
-            return redirect(url_for('login', next=request.url))
+            return redirect(secure_url_for('login', next=request.url))
         
         # Check session timeout
         current_time = time.time()
@@ -377,12 +407,12 @@ def login_required(f):
         if session_age > max_age:
             session.clear()
             flash('Session expired. Please login again.', 'info')
-            return redirect(url_for('login'))
+            return redirect(secure_url_for('login'))
         
         # Verify session integrity
         if authenticated != True:
             session.clear()
-            return redirect(url_for('login', next=request.url))
+            return redirect(secure_url_for('login', next=request.url))
         
         return f(*args, **kwargs)
     return decorated_function
@@ -454,7 +484,7 @@ def login():
         
         # If already authenticated, redirect to index
         if session.get('authenticated'):
-            return redirect(url_for('index'))
+            return redirect(secure_url_for('index'))
         
         # Check if client is locked out
         is_locked_out, remaining_lockout = is_client_locked_out(client_fingerprint)
@@ -477,7 +507,7 @@ def login():
             
             print(f"Security: Successful login for fingerprint {client_fingerprint[:8]}...")
             flash('Login successful!', 'success')
-            return redirect(request.args.get('next') or url_for('index'))
+            return redirect(request.args.get('next') or secure_url_for('index'))
         else:
             # Invalid password - record failed attempt
             attempts, is_now_locked_out = record_failed_login_attempt(client_fingerprint)
@@ -503,7 +533,7 @@ def logout():
     session.pop('authenticated', None)
     session.pop('login_time', None)
     flash('You have been logged out.', 'info')
-    return redirect(url_for('login'))
+    return redirect(secure_url_for('login'))
 
 
 @app.route('/upload', methods=['POST'])

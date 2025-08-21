@@ -1,24 +1,13 @@
 services:
   dicom-anonymizer:
     build: .
-    container_name: ${CONTAINER_NAME:-dicom-anonymizer}
-    # Uncomment for direct access testing
-    # ports:
-    #   - "${APP_PORT:-5000}:5000"
+    container_name: ${CONTAINER_NAME:-Dicom-Anonymizer}
     labels:
         com.docker.compose.project: "${COMPOSE_PROJECT_NAME:-docker}"
-        traefik.enable: "${TRAEFIK_ENABLE:-true}"
-        traefik.http.routers.dicom.tls.certresolver: "${TRAEFIK_CERT_RESOLVER:-dns1}"
-        traefik.http.routers.dicom.rule: "Host(`${TRAEFIK_HOST:-SITE}`)"
-        traefik.http.routers.dicom.entrypoints: "${TRAEFIK_ENTRYPOINTS:-http,https}"
-        traefik.http.routers.dicom.tls: "${TRAEFIK_TLS:-true}"
-        traefik.http.routers.dicom.middlewares: "${TRAEFIK_MIDDLEWARES:-secure-headers}"
-        traefik.http.services.dicom.loadbalancer.server.port: "${TRAEFIK_SERVICE_PORT:-5000}"
-        traefik.docker.network: "${TRAEFIK_NETWORK:-traefik_lan}"
     volumes:
       # Mount directories for persistent storage (optional)
-      - ${UPLOAD_VOLUME_NAME:-dicom_uploads}:/app/temp_uploads
-      - ${OUTPUT_VOLUME_NAME:-dicom_outputs}:/app/temp_outputs
+      - dicom_uploads:/app/temp_uploads
+      - dicom_outputs:/app/temp_outputs
     environment:
       - FLASK_ENV=${FLASK_ENV:-production}
       - FLASK_APP=${FLASK_APP:-app.py}
@@ -33,9 +22,11 @@ services:
       - PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-1}
       - PYTHONDONTWRITEBYTECODE=${PYTHONDONTWRITEBYTECODE:-1}
     restart: ${RESTART_POLICY:-unless-stopped}
+    # Uncomment for direct access testing
+    # ports:
+    #   - "${APP_PORT:-5000}:5000"
     networks:
-      - default
-      - ${TRAEFIK_NETWORK:-traefik_lan}
+      - nginx_lan
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: ${HEALTH_CHECK_INTERVAL:-30s}
@@ -44,19 +35,19 @@ services:
       start_period: ${HEALTH_CHECK_START_PERIOD:-40s}
 
 volumes:
-  ${UPLOAD_VOLUME_NAME:-dicom_uploads}:
+  dicom_uploads:
     driver: ${VOLUME_DRIVER:-local}
     driver_opts:
       type: ${VOLUME_TYPE:-tmpfs}
       device: ${VOLUME_DEVICE:-tmpfs}
-      o: ${VOLUME_OPTIONS:-size=2G,noexec,nosuid,nodev}
-  ${OUTPUT_VOLUME_NAME:-dicom_outputs}:
+      o: ${VOLUME_OPTIONS:-size=10G,noexec,nosuid,nodev}
+  dicom_outputs:
     driver: ${VOLUME_DRIVER:-local}
     driver_opts:
       type: ${VOLUME_TYPE:-tmpfs}
       device: ${VOLUME_DEVICE:-tmpfs}
-      o: ${VOLUME_OPTIONS:-size=2G,noexec,nosuid,nodev}
+      o: ${VOLUME_OPTIONS:-size=10G,noexec,nosuid,nodev}
 
 networks:
-  ${TRAEFIK_NETWORK:-traefik_lan}:
-    external: ${TRAEFIK_NETWORK_EXTERNAL:-true}
+  nginx_lan:
+    external: ${NGINX_NETWORK_EXTERNAL:-true}

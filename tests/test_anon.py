@@ -87,8 +87,7 @@ def test_deleted_tags_are_removed(orig_anon_dataset):
         if (
             len(tt) == 2 and tt in orig_ds
         ):  # sourcery skip: merge-nested-ifs, no-conditionals-in-tests
-            # TODO: Investigate why Date type are replaced instead of deleted
-            # See issue https://github.com/KitwareMedical/dicom-anonymizer/issues/56
+            # Date type are replaced instead of deleted. See README.md.
             if orig_ds[tt].VR != "DA":  # sourcery skip: no-conditionals-in-tests
                 assert tt not in anon_ds, (
                     f"({tt[0]:04X},{tt[1]:04x}):{orig_ds[tt].value}->{anon_ds[tt].value}"

@@ -3,3 +3,4 @@ werkzeug>=2.3.0
 python-dotenv>=1.0.0
 pydicom>=2.3.0
 dicom-anonymizer>=1.0.13
+flask-cors>=4.0.0

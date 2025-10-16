@@ -11,7 +11,10 @@ import threading
 import time
 import datetime
 import hashlib
+import logging
+import secrets
 from flask import Flask, render_template, request, send_file, jsonify, session, redirect, url_for, flash
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 import zipfile
@@ -21,13 +24,33 @@ import json
 import traceback
 from functools import wraps
 from dotenv import load_dotenv
+from pathlib import Path
 
 # Load environment variables
 load_dotenv()
 
+_default_log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=_default_log_level,
+        format='%(asctime)s %(levelname)s [%(name)s] %(message)s'
+    )
+logger = logging.getLogger(__name__)
+security_logger = logging.getLogger(f"{__name__}.security")
+
+# Resolve root directory
+PROJECT_ROOT = Path(os.getenv('DICOM_APP_ROOT', Path.cwd()))
+
 # Flask application configuration
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'dicom-anonymizer-fallback-secret-key-2024')
+_secret_key = os.getenv('SECRET_KEY')
+if not _secret_key:
+    _secret_key = secrets.token_hex(32)
+    logger.warning("SECRET_KEY is not set; generated ephemeral secret key for this process")
+elif len(_secret_key) < 32:
+    logger.warning("SECRET_KEY is shorter than 32 characters; consider using a 64-character random string")
+
+app.config['SECRET_KEY'] = _secret_key
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB max file size
 
 # Configure proxy support for proper HTTPS detection behind reverse proxies
@@ -40,42 +63,70 @@ app.wsgi_app = ProxyFix(
     x_prefix=1    # Trust X-Forwarded-Prefix
 )
 
-# Security and session configuration
-APP_PASSWORD = os.getenv('APP_PASSWORD', 'admin123')
-SESSION_TIMEOUT_MINUTES = int(os.getenv('SESSION_TIMEOUT_MINUTES', '60'))
+_allowed_origins = [origin.strip() for origin in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if origin.strip()]
+if _allowed_origins:
+    CORS(app, resources={r"/api/*": {"origins": _allowed_origins}})
+    logger.info("Configured CORS for origins: %s", _allowed_origins)
 
 # Environment detection
 FLASK_ENV = os.getenv('FLASK_ENV', 'development')
-IS_PRODUCTION = FLASK_ENV == 'production'
+IS_PRODUCTION = FLASK_ENV.lower() == 'production'
+
+# Security and session configuration
+ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD')
+if not ADMIN_PASSWORD:
+    if IS_PRODUCTION:
+        raise RuntimeError('ADMIN_PASSWORD must be set in production environments')
+    ADMIN_PASSWORD = 'admin123'
+    security_logger.warning('ADMIN_PASSWORD not set; using development fallback password')
+elif ADMIN_PASSWORD == 'admin123':
+    security_logger.warning('ADMIN_PASSWORD uses insecure default value; update ADMIN_PASSWORD for better security')
+SESSION_TIMEOUT_MINUTES = int(os.getenv('SESSION_TIMEOUT_MINUTES', '60'))
 
 # Application startup logging
-print(f"DICOM Anonymizer - Environment: {FLASK_ENV}")
-print(f"Authentication enabled - Session timeout: {SESSION_TIMEOUT_MINUTES} minutes")
+logger.info("DICOM Anonymizer - Environment: %s", FLASK_ENV)
+logger.info("Authentication enabled - Session timeout: %s minutes", SESSION_TIMEOUT_MINUTES)
 
 
 # Directory setup for file operations
-UPLOAD_FOLDER = os.path.join(os.getcwd(), 'temp_uploads')
-OUTPUT_FOLDER = os.path.join(os.getcwd(), 'temp_outputs')
+UPLOAD_FOLDER = PROJECT_ROOT / 'temp_uploads'
+OUTPUT_FOLDER = PROJECT_ROOT / 'temp_outputs'
 
 try:
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-    print(f"Working directories initialized: uploads={UPLOAD_FOLDER}, outputs={OUTPUT_FOLDER}")
+    UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+    OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+    logger.info("Working directories initialized: uploads=%s, outputs=%s", UPLOAD_FOLDER, OUTPUT_FOLDER)
 except PermissionError as e:
-    print(f"Permission error creating directories: {e}")
+    logger.error("Permission error creating directories: %s", e)
     # Fallback to system temp directory
-    UPLOAD_FOLDER = tempfile.mkdtemp(prefix='dicom_uploads_')
-    OUTPUT_FOLDER = tempfile.mkdtemp(prefix='dicom_outputs_')
-    print(f"Using fallback directories: uploads={UPLOAD_FOLDER}, outputs={OUTPUT_FOLDER}")
+    UPLOAD_FOLDER = Path(tempfile.mkdtemp(prefix='dicom_uploads_'))
+    OUTPUT_FOLDER = Path(tempfile.mkdtemp(prefix='dicom_outputs_'))
+    logger.warning("Using fallback directories: uploads=%s, outputs=%s", UPLOAD_FOLDER, OUTPUT_FOLDER)
 
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['OUTPUT_FOLDER'] = OUTPUT_FOLDER
+app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
+app.config['OUTPUT_FOLDER'] = str(OUTPUT_FOLDER)
 
 # Session tracking for automatic cleanup (10 minutes)
 session_timestamps = {}
+session_lock = threading.Lock()
 
 # Global cache for consistent name mappings during anonymization
 name_mapping_cache = {}
+
+
+def _record_session_activity(session_id: str) -> None:
+    with session_lock:
+        session_timestamps[session_id] = time.time()
+
+
+def _clear_session_activity(session_id: str) -> None:
+    with session_lock:
+        session_timestamps.pop(session_id, None)
+
+
+def _active_session_count() -> int:
+    with session_lock:
+        return len(session_timestamps)
 
 
 def secure_url_for(endpoint, **values):
@@ -158,7 +209,10 @@ def record_failed_login_attempt(client_fingerprint):
     if client_fingerprint not in login_attempts_global:
         # First failed attempt
         login_attempts_global[client_fingerprint] = (1, current_time)
-        print(f"Security: First failed login attempt for fingerprint {client_fingerprint[:8]}...")
+        security_logger.warning(
+            "First failed login attempt for fingerprint %s",
+            client_fingerprint[:8]
+        )
         return 1, False
     else:
         attempts, first_attempt_time = login_attempts_global[client_fingerprint]
@@ -170,9 +224,17 @@ def record_failed_login_attempt(client_fingerprint):
         # Check if this triggers a lockout
         is_locked_out = new_attempts >= MAX_LOGIN_ATTEMPTS
         
-        print(f"Security: Failed login attempt #{new_attempts} for fingerprint {client_fingerprint[:8]}...")
+        security_logger.warning(
+            "Failed login attempt #%s for fingerprint %s",
+            new_attempts,
+            client_fingerprint[:8]
+        )
         if is_locked_out:
-            print(f"Security: Client fingerprint {client_fingerprint[:8]}... now LOCKED OUT after {new_attempts} attempts")
+            security_logger.error(
+                "Client fingerprint %s locked out after %s attempts",
+                client_fingerprint[:8],
+                new_attempts
+            )
         
         return new_attempts, is_locked_out
 
@@ -184,7 +246,11 @@ def clear_failed_login_attempts(client_fingerprint):
     if client_fingerprint in login_attempts_global:
         attempts, _ = login_attempts_global[client_fingerprint]
         del login_attempts_global[client_fingerprint]
-        print(f"Security: Cleared {attempts} failed login attempts for fingerprint {client_fingerprint[:8]}... after successful login")
+        security_logger.info(
+            "Cleared %s failed login attempts for fingerprint %s",
+            attempts,
+            client_fingerprint[:8]
+        )
 
 
 def calculate_backoff_delay(attempts):
@@ -198,6 +264,44 @@ def calculate_backoff_delay(attempts):
     # Exponential backoff: 2^attempts seconds, capped at 32 seconds
     delay = min(EXPONENTIAL_BACKOFF_BASE ** capped_attempts, 32)
     return delay
+
+
+def _request_wants_json() -> bool:
+    """Determine whether the current request expects a JSON response."""
+    if request.is_json:
+        return True
+
+    accept = request.headers.get('Accept', '')
+    if 'application/json' in accept.lower():
+        return True
+
+    requested_with = request.headers.get('X-Requested-With', '').lower()
+    if requested_with == 'xmlhttprequest':
+        return True
+
+    return request.path.startswith('/api/')
+
+
+def _current_session_state():
+    """Return tuple (is_valid, reason, remaining_seconds) for the current session."""
+    authenticated = session.get('authenticated')
+    login_time = session.get('login_time')
+
+    if not authenticated or not login_time:
+        return False, 'not_authenticated', 0
+
+    max_age = SESSION_TIMEOUT_MINUTES * 60
+    current_time = time.time()
+    session_age = current_time - login_time
+
+    if session_age > max_age:
+        return False, 'expired', 0
+
+    if authenticated is not True:
+        return False, 'invalid_marker', 0
+
+    remaining_seconds = max(int(max_age - session_age), 0)
+    return True, 'active', remaining_seconds
 
 
 def allowed_file(filename):
@@ -222,10 +326,10 @@ def safe_makedirs(path):
         os.makedirs(path, exist_ok=True)
         return True
     except PermissionError as e:
-        print(f"Permission error creating directory {path}: {e}")
+        logger.error("Permission error creating directory %s: %s", path, e)
         return False
     except Exception as e:
-        print(f"Error creating directory {path}: {e}")
+        logger.exception("Unexpected error creating directory %s", path)
         return False
 
 
@@ -313,7 +417,7 @@ def cleanup_non_dicom_files(uploaded_files, session_dir):
                     os.remove(file_path)
                     files_deleted += 1
             except Exception as e:
-                print(f"Error deleting non-DICOM file {file_info['name']}: {e}")
+                logger.exception("Error deleting non-DICOM file %s", file_info['name'])
     
     # Clean up empty extraction directories
     try:
@@ -331,7 +435,7 @@ def cleanup_non_dicom_files(uploaded_files, session_dir):
             if not remaining_dicom_files:
                 shutil.rmtree(extract_dir)
     except Exception as e:
-        print(f"Error cleaning up extraction directory: {e}")
+        logger.exception("Error cleaning up extraction directory")
     
     return files_deleted
 
@@ -344,12 +448,13 @@ def cleanup_old_sessions():
     while True:
         try:
             current_time = time.time()
-            sessions_to_remove = []
-            
-            for session_id, timestamp in session_timestamps.items():
-                # Check if session is older than 10 minutes (600 seconds)
-                if current_time - timestamp > 600:
-                    sessions_to_remove.append(session_id)
+            with session_lock:
+                sessions_snapshot = list(session_timestamps.items())
+
+            sessions_to_remove = [
+                session_id for session_id, timestamp in sessions_snapshot
+                if current_time - timestamp > 600
+            ]
             
             # Clean up old sessions
             for session_id in sessions_to_remove:
@@ -370,16 +475,17 @@ def cleanup_old_sessions():
                         os.remove(zip_file)
                     
                     # Remove from tracking
-                    del session_timestamps[session_id]
+                    with session_lock:
+                        session_timestamps.pop(session_id, None)
                     
                 except Exception as e:
-                    print(f"Error cleaning up session {session_id}: {e}")
+                    logger.exception("Error cleaning up session %s", session_id)
             
             # Sleep for 1 minute before next cleanup check
             time.sleep(60)
             
         except Exception as e:
-            print(f"Error in cleanup thread: {e}")
+            logger.exception("Error in cleanup thread")
             time.sleep(60)  # Continue checking even if there's an error
 
 
@@ -390,30 +496,22 @@ def login_required(f):
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # Check if user is authenticated
-        authenticated = session.get('authenticated')
-        login_time = session.get('login_time')
-        
-        # Validate authentication
-        if not authenticated or not login_time:
+        is_valid, reason, _ = _current_session_state()
+
+        if not is_valid:
             session.clear()
-            return redirect(secure_url_for('login', next=request.url))
-        
-        # Check session timeout
-        current_time = time.time()
-        session_age = current_time - login_time
-        max_age = SESSION_TIMEOUT_MINUTES * 60
-        
-        if session_age > max_age:
-            session.clear()
-            flash('Session expired. Please login again.', 'info')
-            return redirect(secure_url_for('login'))
-        
-        # Verify session integrity
-        if authenticated != True:
-            session.clear()
-            return redirect(secure_url_for('login', next=request.url))
-        
+            if reason == 'expired':
+                flash('Session expired. Please login again.', 'info')
+                message = 'Session expired. Please login again.'
+            else:
+                flash('Please login to continue.', 'warning')
+                message = 'Authentication required.'
+
+            if _request_wants_json():
+                return jsonify({'error': message, 'reason': reason}), 401
+
+            return redirect(secure_url_for('index'))
+
         return f(*args, **kwargs)
     return decorated_function
 
@@ -434,7 +532,7 @@ def health_check():
             'upload_folder_writable': os.access(app.config['UPLOAD_FOLDER'], os.W_OK),
             'output_folder_writable': os.access(app.config['OUTPUT_FOLDER'], os.W_OK),
             'environment': os.getenv('FLASK_ENV', 'development'),
-            'active_sessions': len(session_timestamps)
+            'active_sessions': _active_session_count()
         }
         
         # Check if all critical components are healthy
@@ -467,73 +565,143 @@ def health_check():
 
 
 @app.route('/')
-@login_required
 def index():
-    """Main application page."""
-    return render_template('index.html')
+    """Main application page with inline authentication modal."""
+    is_authenticated, _, remaining_seconds = _current_session_state()
+
+    if not is_authenticated:
+        session.clear()
+
+    return render_template(
+        'index.html',
+        is_authenticated=is_authenticated,
+        session_timeout_minutes=SESSION_TIMEOUT_MINUTES,
+        session_remaining_seconds=remaining_seconds,
+        login_lockout_duration=LOGIN_LOCKOUT_DURATION,
+        max_login_attempts=MAX_LOGIN_ATTEMPTS
+    )
 
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    """Authentication endpoint with brute force protection."""
-    if request.method == 'POST':
-        password = request.form.get('password')
-        
-        # Get client fingerprint for monitoring (avoid using IP for proxy compatibility)
-        client_fingerprint = get_client_fingerprint(request)
-        
-        # If already authenticated, redirect to index
-        if session.get('authenticated'):
-            return redirect(secure_url_for('index'))
-        
-        # Check if client is locked out
-        is_locked_out, remaining_lockout = is_client_locked_out(client_fingerprint)
-        if is_locked_out:
-            minutes, seconds = divmod(remaining_lockout, 60)
-            print(f"Security: Login attempt blocked for fingerprint {client_fingerprint[:8]}... (locked out for {int(remaining_lockout)}s)")
-            flash(f'Too many failed login attempts. Try again in {int(minutes)} minute(s) and {int(seconds)} second(s).', 'danger')
-            return render_template('login.html')
-        
-        if password == APP_PASSWORD:
-            # Successful login - clear any failed attempt records
-            clear_failed_login_attempts(client_fingerprint)
-            
-            session.clear()
-            session['authenticated'] = True
-            session['login_time'] = time.time()
-            session.permanent = True
-            # Set the permanent session timeout
-            app.permanent_session_lifetime = datetime.timedelta(minutes=SESSION_TIMEOUT_MINUTES)
-            
-            print(f"Security: Successful login for fingerprint {client_fingerprint[:8]}...")
-            flash('Login successful!', 'success')
-            return redirect(request.args.get('next') or secure_url_for('index'))
-        else:
-            # Invalid password - record failed attempt
-            attempts, is_now_locked_out = record_failed_login_attempt(client_fingerprint)
-            
-            # Apply exponential backoff delay
-            backoff_delay = calculate_backoff_delay(attempts)
-            print(f"Security: Applying {backoff_delay}s backoff delay for attempt #{attempts}")
-            time.sleep(backoff_delay)
-            
-            # Check if this attempt triggers a lockout
-            if is_now_locked_out:
-                flash(f'Too many failed login attempts. Access temporarily restricted for {LOGIN_LOCKOUT_DURATION // 60} minutes.', 'danger')
-            else:
-                remaining_attempts = MAX_LOGIN_ATTEMPTS - attempts
-                flash(f'Invalid password. {remaining_attempts} attempt(s) remaining.', 'danger')
-    
-    return render_template('login.html')
+    """Authentication endpoint with brute force protection and JSON support."""
+    if request.method == 'GET':
+        is_authenticated, _, _ = _current_session_state()
+
+        if _request_wants_json():
+            return jsonify({'authenticated': is_authenticated}), 200
+
+        return redirect(secure_url_for('index'))
+
+    payload = request.get_json(silent=True) or request.form
+    password = (payload.get('password') or '').strip()
+
+    client_fingerprint = get_client_fingerprint(request)
+
+    if session.get('authenticated'):
+        security_logger.info(
+            "Login attempt while already authenticated for fingerprint %s",
+            client_fingerprint[:8]
+        )
+        if _request_wants_json():
+            return jsonify({'success': True, 'already_authenticated': True}), 200
+        return redirect(request.args.get('next') or secure_url_for('index'))
+
+    is_locked_out, remaining_lockout = is_client_locked_out(client_fingerprint)
+    if is_locked_out:
+        minutes, seconds = divmod(int(max(remaining_lockout, 0)), 60)
+        message = (
+            f'Too many failed login attempts. Try again in {int(minutes)} minute(s) '
+            f'and {int(seconds)} second(s).'
+        )
+        security_logger.error(
+            "Login attempt blocked for fingerprint %s; locked out for %ss",
+            client_fingerprint[:8],
+            int(remaining_lockout)
+        )
+        if _request_wants_json():
+            return jsonify({
+                'success': False,
+                'error': message,
+                'locked_out': True,
+                'retry_after': int(remaining_lockout)
+            }), 403
+
+        flash(message, 'danger')
+        return redirect(secure_url_for('index'))
+
+    if password == ADMIN_PASSWORD:
+        clear_failed_login_attempts(client_fingerprint)
+
+        session.clear()
+        session['authenticated'] = True
+        session['login_time'] = time.time()
+        session.permanent = True
+        app.permanent_session_lifetime = datetime.timedelta(minutes=SESSION_TIMEOUT_MINUTES)
+
+        security_logger.info(
+            "Successful authentication for fingerprint %s",
+            client_fingerprint[:8]
+        )
+
+        if _request_wants_json():
+            return jsonify({'success': True}), 200
+
+        flash('Login successful!', 'success')
+        return redirect(request.args.get('next') or secure_url_for('index'))
+
+    attempts, is_now_locked_out = record_failed_login_attempt(client_fingerprint)
+
+    backoff_delay = calculate_backoff_delay(attempts)
+    security_logger.warning(
+        "Applying %ss backoff for fingerprint %s (attempt #%s)",
+        backoff_delay,
+        client_fingerprint[:8],
+        attempts
+    )
+    time.sleep(backoff_delay)
+
+    if is_now_locked_out:
+        message = (
+            f'Too many failed login attempts. Access temporarily restricted for '
+            f'{LOGIN_LOCKOUT_DURATION // 60} minutes.'
+        )
+        if _request_wants_json():
+            return jsonify({
+                'success': False,
+                'error': message,
+                'locked_out': True,
+                'retry_after': LOGIN_LOCKOUT_DURATION
+            }), 403
+
+        flash(message, 'danger')
+        return redirect(secure_url_for('index'))
+
+    remaining_attempts = max(MAX_LOGIN_ATTEMPTS - attempts, 0)
+    message = f'Invalid password. {remaining_attempts} attempt(s) remaining.'
+
+    if _request_wants_json():
+        return jsonify({
+            'success': False,
+            'error': message,
+            'locked_out': False,
+            'attempts_remaining': remaining_attempts
+        }), 401
+
+    flash(message, 'danger')
+    return redirect(secure_url_for('index'))
 
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST', 'GET'])
 def logout():
     """User logout endpoint."""
-    session.pop('authenticated', None)
-    session.pop('login_time', None)
+    session.clear()
+
+    if _request_wants_json():
+        return jsonify({'success': True}), 200
+
     flash('You have been logged out.', 'info')
-    return redirect(secure_url_for('login'))
+    return redirect(secure_url_for('index'))
 
 
 @app.route('/upload', methods=['POST'])
@@ -565,7 +733,7 @@ def upload_files():
         return jsonify({'error': 'Session not found'}), 404
     
     # Track session timestamp for cleanup
-    session_timestamps[session_id] = time.time()
+    _record_session_activity(session_id)
     
     # Create session directory if new
     if is_new_session:
@@ -702,7 +870,7 @@ def anonymize_files():
     output_session_dir = os.path.join(app.config['OUTPUT_FOLDER'], output_session_id)
     
     # Track output session timestamp for cleanup
-    session_timestamps[output_session_id] = time.time()
+    _record_session_activity(output_session_id)
     
     # Create output directory
     if not safe_makedirs(output_session_dir):
@@ -888,8 +1056,7 @@ def cleanup_session(session_id):
             os.remove(zip_file)
         
         # Remove from tracking
-        if session_id in session_timestamps:
-            del session_timestamps[session_id]
+        _clear_session_activity(session_id)
         
         return jsonify({'success': True})
     except Exception as e:
@@ -904,7 +1071,10 @@ def status():
         current_time = time.time()
         active_sessions = []
         
-        for session_id, timestamp in session_timestamps.items():
+        with session_lock:
+            sessions_snapshot = list(session_timestamps.items())
+
+        for session_id, timestamp in sessions_snapshot:
             age_minutes = (current_time - timestamp) / 60
             active_sessions.append({
                 'session_id': session_id,
@@ -937,7 +1107,7 @@ def debug_session():
         'session_permanent': session.permanent,
         'secret_key_set': bool(app.config.get('SECRET_KEY')),
         'secret_key_preview': app.config.get('SECRET_KEY', '')[:10] + '...' if app.config.get('SECRET_KEY') else 'NOT SET',
-        'app_password_set': bool(APP_PASSWORD),
+    'admin_password_set': bool(ADMIN_PASSWORD),
         'request_headers': dict(request.headers),
         'remote_addr': request.remote_addr
     })
@@ -984,23 +1154,17 @@ def too_large(e):
 
 
 if __name__ == '__main__':
-    print("Starting DICOM Anonymizer Web Application...")
-    print(f"Upload folder: {UPLOAD_FOLDER}")
-    print(f"Output folder: {OUTPUT_FOLDER}")
-    print(f"Environment: {FLASK_ENV}")
-    print("Features enabled:")
-    print("  - Content-based DICOM validation (no file extension required)")
-    print("  - ZIP archive extraction and processing")
-    print("  - Automatic file cleanup (10 minutes)")
-    print("  - Custom minimal anonymization mode")
-    print("  - Health check endpoint (/health)")
-    print("  - Session-based authentication")
-    
+    logger.info("Starting DICOM Anonymizer Web Application...")
+    logger.info("Upload folder: %s", UPLOAD_FOLDER)
+    logger.info("Output folder: %s", OUTPUT_FOLDER)
+    logger.info("Environment: %s", FLASK_ENV)
+    logger.info("Features enabled: content-based validation, zip extraction, cleanup, minimal anonymization, health checks, session auth")
+
     if IS_PRODUCTION:
-        print("Running in PRODUCTION mode")
+        logger.info("Running in PRODUCTION mode")
         app.run(host='0.0.0.0', port=5000, debug=False)
     else:
-        print("Running in DEVELOPMENT mode")
-        print("Navigate to http://localhost:5000 to access the application")
+        logger.info("Running in DEVELOPMENT mode")
+        logger.info("Navigate to http://localhost:5000 to access the application")
         app.run(host='0.0.0.0', port=5000, debug=True)
 

@@ -26,6 +26,115 @@
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
         }
 
+        .container.locked {
+            filter: blur(3px);
+            pointer-events: none;
+            user-select: none;
+        }
+
+        .top-bar {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .session-status {
+            font-size: 0.95em;
+            color: #0c5460;
+            background: #d1ecf1;
+            padding: 6px 12px;
+            border-radius: 20px;
+        }
+
+        .login-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(13, 27, 43, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .login-overlay.hidden {
+            display: none !important;
+        }
+
+        .login-modal {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 30px;
+            width: min(420px, 90%);
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35);
+            text-align: center;
+        }
+
+        .login-modal h2 {
+            margin: 0 0 10px;
+            color: #1f2933;
+        }
+
+        .login-modal p {
+            margin: 0 0 20px;
+            color: #4a5568;
+            line-height: 1.4;
+        }
+
+        .login-modal form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .login-modal input[type="password"] {
+            padding: 12px 14px;
+            border-radius: 8px;
+            border: 1px solid #cbd5e0;
+            font-size: 16px;
+        }
+
+        .login-modal input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.25);
+        }
+
+        .login-modal button {
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: #ffffff;
+            font-weight: 600;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .login-modal button:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.35);
+        }
+
+        .login-modal button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .login-error {
+            margin-top: 12px;
+            padding: 10px 12px;
+            background: #fdecea;
+            color: #c53030;
+            border-radius: 8px;
+            font-size: 0.95em;
+        }
+
+        body.modal-open {
+            overflow: hidden;
+        }
+
         h1 {
             text-align: center;
             color: #333;
@@ -432,7 +541,23 @@
     </style>
 </head>
 <body>
-    <div class="container">
+    <div id="loginOverlay" class="login-overlay{% if is_authenticated %} hidden{% endif %}">
+        <div class="login-modal">
+            <h2>🔐 Secure Access Required</h2>
+            <p>Enter the administrator password to manage anonymization tasks.</p>
+            <form id="loginForm">
+                <input type="password" id="loginPassword" name="password" placeholder="Admin password" autocomplete="current-password" required>
+                <button type="submit" id="loginButton">Unlock</button>
+            </form>
+            <div id="loginError" class="login-error hidden"></div>
+        </div>
+    </div>
+
+    <div id="appContainer" class="container{% if not is_authenticated %} locked{% endif %}">
+        <div class="top-bar">
+            <span id="sessionStatus" class="session-status{% if not is_authenticated %} hidden{% endif %}">🔓 Session active</span>
+            <button id="logoutButton" type="button" class="btn secondary{% if not is_authenticated %} hidden{% endif %}">🚪 Logout</button>
+        </div>
         <h1>🏥 DICOM Anonymizer - Batch Processing</h1>
 
         <div class="info-box">
@@ -531,7 +656,188 @@
         </div>
     </div>
 
+    <script id="appConfigPayload" type="application/json">
+        {{ {
+            'authenticated': is_authenticated,
+            'sessionTimeoutMinutes': session_timeout_minutes,
+            'sessionRemainingSeconds': session_remaining_seconds,
+            'loginLockoutSeconds': login_lockout_duration,
+            'maxLoginAttempts': max_login_attempts
+        } | tojson }}
+    </script>
+
     <script>
+        const appConfig = JSON.parse(document.getElementById('appConfigPayload').textContent);
+
+        const loginOverlay = document.getElementById('loginOverlay');
+        const appContainer = document.getElementById('appContainer');
+        const loginForm = document.getElementById('loginForm');
+        const loginPasswordInput = document.getElementById('loginPassword');
+        const loginButton = document.getElementById('loginButton');
+        const loginError = document.getElementById('loginError');
+        const logoutButton = document.getElementById('logoutButton');
+        const sessionStatus = document.getElementById('sessionStatus');
+
+        function updateSessionUI(isAuthenticated) {
+            if (sessionStatus) {
+                if (isAuthenticated) {
+                    sessionStatus.classList.remove('hidden');
+                    sessionStatus.textContent = '🔓 Session active';
+                } else {
+                    sessionStatus.classList.add('hidden');
+                }
+            }
+
+            if (logoutButton) {
+                logoutButton.classList.toggle('hidden', !isAuthenticated);
+                logoutButton.disabled = false;
+            }
+        }
+
+        function lockInterface(message) {
+            if (loginOverlay) {
+                loginOverlay.classList.remove('hidden');
+            }
+
+            if (appContainer) {
+                appContainer.classList.add('locked');
+            }
+
+            document.body.classList.add('modal-open');
+
+            if (loginError) {
+                if (message) {
+                    loginError.textContent = message;
+                    loginError.classList.remove('hidden');
+                } else {
+                    loginError.textContent = '';
+                    loginError.classList.add('hidden');
+                }
+            }
+
+            if (loginButton) {
+                loginButton.disabled = false;
+                loginButton.textContent = 'Unlock';
+            }
+
+            if (logoutButton) {
+                logoutButton.disabled = false;
+            }
+
+            if (loginPasswordInput) {
+                loginPasswordInput.value = '';
+                loginPasswordInput.focus();
+            }
+
+            appConfig.authenticated = false;
+            updateSessionUI(false);
+        }
+
+        function unlockInterface() {
+            if (loginOverlay) {
+                loginOverlay.classList.add('hidden');
+            }
+
+            if (appContainer) {
+                appContainer.classList.remove('locked');
+            }
+
+            document.body.classList.remove('modal-open');
+
+            if (loginError) {
+                loginError.textContent = '';
+                loginError.classList.add('hidden');
+            }
+
+            appConfig.authenticated = true;
+            updateSessionUI(true);
+        }
+
+        async function parseJsonResponse(response, unauthorizedMessage) {
+            if (response.status === 401) {
+                const payload = await response.json().catch(() => ({}));
+                const message = (payload && payload.error) || unauthorizedMessage || 'Authentication required.';
+                lockInterface(message);
+                return null;
+            }
+
+            return response.json();
+        }
+
+        if (!appConfig.authenticated) {
+            lockInterface();
+        } else {
+            updateSessionUI(true);
+        }
+
+        if (loginForm) {
+            loginForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+
+                if (!loginPasswordInput) {
+                    return;
+                }
+
+                const password = loginPasswordInput.value.trim();
+                if (!password) {
+                    lockInterface('Password is required.');
+                    return;
+                }
+
+                loginButton.disabled = true;
+                loginButton.textContent = 'Unlocking...';
+
+                try {
+                    const response = await fetch('/login', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({ password })
+                    });
+
+                    const result = await response.json().catch(() => ({}));
+
+                    if (response.ok && result && result.success) {
+                        unlockInterface();
+                        loginPasswordInput.value = '';
+                    } else {
+                        const message = (result && result.error) || 'Login failed. Please try again.';
+                        lockInterface(message);
+                    }
+                } catch (error) {
+                    lockInterface(`Unable to login: ${error.message}`);
+                } finally {
+                    loginButton.disabled = false;
+                    loginButton.textContent = 'Unlock';
+                }
+            });
+        }
+
+        if (logoutButton) {
+            logoutButton.addEventListener('click', async () => {
+                logoutButton.disabled = true;
+
+                try {
+                    const response = await fetch('/logout', {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    });
+
+                    if (response.ok) {
+                        lockInterface('You have been logged out. Please login to continue.');
+                    } else {
+                        logoutButton.disabled = false;
+                    }
+                } catch (error) {
+                    logoutButton.disabled = false;
+                }
+            });
+        }
+
         // Global state management for tabs
         const tabStates = {
             'tab-1': {
@@ -909,10 +1215,19 @@
             try {
                 const response = await fetch('/upload', {
                     method: 'POST',
+                    headers: {
+                        'Accept': 'application/json'
+                    },
                     body: formData
                 });
 
-                const result = await response.json();
+                const result = await parseJsonResponse(response, 'Session expired. Please login to continue.');
+                if (!result) {
+                    anonymizeBtn.disabled = false;
+                    anonymizeBtn.textContent = '🔒 Start Anonymization';
+                    enableUploadForTab(tabId);
+                    return;
+                }
 
                 if (result.success) {
                     // Update state
@@ -1053,7 +1368,8 @@
                 const response = await fetch('/anonymize', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
                     },
                     body: JSON.stringify({
                         session_id: state.sessionId,
@@ -1063,7 +1379,10 @@
                     })
                 });
 
-                const result = await response.json();
+                const result = await parseJsonResponse(response, 'Session expired. Please login to continue.');
+                if (!result) {
+                    return;
+                }
 
                 if (result.success) {
                     state.outputSessionId = result.output_session_id;

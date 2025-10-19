@@ -676,12 +676,14 @@
             'sessionTimeoutMinutes': session_timeout_minutes,
             'sessionRemainingSeconds': session_remaining_seconds,
             'loginLockoutSeconds': login_lockout_duration,
-            'maxLoginAttempts': max_login_attempts
+            'maxLoginAttempts': max_login_attempts,
+            'existingSessions': existing_sessions
         } | tojson }}
     </script>
 
     <script>
-        const appConfig = JSON.parse(document.getElementById('appConfigPayload').textContent);
+    const appConfig = JSON.parse(document.getElementById('appConfigPayload').textContent);
+    appConfig.existingSessions = Array.isArray(appConfig.existingSessions) ? appConfig.existingSessions : [];
 
         const loginOverlay = document.getElementById('loginOverlay');
         const appContainer = document.getElementById('appContainer');
@@ -691,6 +693,23 @@
         const loginError = document.getElementById('loginError');
         const logoutButton = document.getElementById('logoutButton');
         const sessionStatus = document.getElementById('sessionStatus');
+
+        function createEmptyTabState() {
+            return {
+                sessionId: null,
+                outputSessionId: null,
+                uploadEnabled: true,
+                files: [],
+                totalDicomCount: 0
+            };
+        }
+
+        const tabStates = {
+            'tab-1': createEmptyTabState()
+        };
+
+        let activeTab = 'tab-1';
+        let tabCounter = 1;
 
         function updateSessionUI(isAuthenticated) {
             if (sessionStatus) {
@@ -745,6 +764,7 @@
 
             appConfig.authenticated = false;
             updateSessionUI(false);
+            resetAllTabs();
         }
 
         function unlockInterface() {
@@ -852,33 +872,13 @@
             });
         }
 
-        // Global state management for tabs
-        const tabStates = {
-            'tab-1': {
-                sessionId: null,
-                outputSessionId: null,
-                uploadEnabled: true,
-                files: [],
-                totalDicomCount: 0
-            }
-        };
-
-        let activeTab = 'tab-1';
-        let tabCounter = 1;
-
         // Tab management functions
         function createNewTab() {
             tabCounter++;
             const tabId = `tab-${tabCounter}`;
             
             // Initialize tab state
-            tabStates[tabId] = {
-                sessionId: null,
-                outputSessionId: null,
-                uploadEnabled: true,
-                files: [],
-                totalDicomCount: 0
-            };
+            tabStates[tabId] = createEmptyTabState();
 
             // Create tab button
             const tabButton = document.createElement('button');
@@ -981,6 +981,45 @@
             
             // Show initial status
             showStatus('🚀 Ready to upload DICOM files. Drag and drop or click to select files.', 'info', tabId);
+
+            return tabId;
+        }
+
+        function resetAllTabs() {
+            // Remove any dynamically added tabs
+            document.querySelectorAll('.tab-button').forEach(button => {
+                if (button.dataset && button.dataset.tab !== 'tab-1') {
+                    button.remove();
+                } else if (button.dataset && button.dataset.tab === 'tab-1') {
+                    button.classList.add('active');
+                }
+            });
+
+            document.querySelectorAll('.tab-content').forEach(content => {
+                if (content.id !== 'tab-1') {
+                    content.remove();
+                } else {
+                    content.classList.add('active');
+                }
+            });
+
+            // Reset counters and state
+            tabCounter = 1;
+            activeTab = 'tab-1';
+            Object.keys(tabStates).forEach(tabId => {
+                if (tabId !== 'tab-1') {
+                    delete tabStates[tabId];
+                }
+            });
+            tabStates['tab-1'] = createEmptyTabState();
+            appConfig.existingSessions = [];
+
+            const tabOne = document.getElementById('tab-1');
+            if (tabOne) {
+                resetTabContent(tabOne, 'tab-1');
+            }
+
+            showStatus('🚀 Ready to upload DICOM files. Drag and drop or click to select files.', 'info', 'tab-1');
         }
 
         function updateElementIds(element, tabId) {
@@ -1080,16 +1119,15 @@
 
         function closeTab(event, tabId) {
             event.stopPropagation();
-            
-            // Don't allow closing the last tab
+
             const tabButtons = document.querySelectorAll('.tab-button');
+            let replacementTabId = null;
             if (tabButtons.length <= 1) {
-                alert('Cannot close the last tab');
-                return;
+                replacementTabId = createNewTab();
             }
 
             // Clean up session if exists
-            const state = tabStates[tabId];
+            const state = tabStates[tabId] || {};
             if (state.sessionId) {
                 fetch(`/cleanup/${state.sessionId}`);
             }
@@ -1098,12 +1136,23 @@
             }
 
             // Remove tab button and content
-            document.querySelector(`[data-tab="${tabId}"]`).remove();
-            document.getElementById(tabId).remove();
-            
+            const tabButtonEl = document.querySelector(`[data-tab="${tabId}"]`);
+            if (tabButtonEl) {
+                tabButtonEl.remove();
+            }
+            const tabContentEl = document.getElementById(tabId);
+            if (tabContentEl) {
+                tabContentEl.remove();
+            }
+
             // Delete state
             delete tabStates[tabId];
-            
+
+            if (replacementTabId) {
+                switchTab(replacementTabId);
+                return;
+            }
+
             // Switch to first available tab if this was active
             if (activeTab === tabId) {
                 const firstTab = document.querySelector('.tab-button');
@@ -1596,13 +1645,7 @@
             }
 
             // Reset state
-            tabStates[tabId] = {
-                sessionId: null,
-                outputSessionId: null,
-                uploadEnabled: true,
-                files: [],
-                totalDicomCount: 0
-            };
+            tabStates[tabId] = createEmptyTabState();
 
             // Reset UI
             const tabContent = document.getElementById(tabId);
@@ -1639,15 +1682,56 @@
 
         function showStatus(message, type, tabId) {
             const uploadStatus = document.getElementById(`uploadStatus-${tabId}`);
+            if (!uploadStatus) {
+                return;
+            }
             uploadStatus.className = `status ${type}`;
             uploadStatus.innerHTML = message;
             uploadStatus.classList.remove('hidden');
         }
 
+        function restoreExistingSessions(existingSessions = []) {
+            if (!Array.isArray(existingSessions) || existingSessions.length === 0) {
+                showStatus('🚀 Ready to upload DICOM files. Drag and drop or click to select files.', 'info', 'tab-1');
+                return;
+            }
+
+            existingSessions.forEach((session, index) => {
+                const targetTabId = index === 0 ? 'tab-1' : createNewTab();
+                const state = tabStates[targetTabId];
+
+                state.sessionId = session.session_id || null;
+                state.files = Array.isArray(session.files) ? session.files : [];
+                state.totalDicomCount = session.total_dicom_count || 0;
+                state.uploadEnabled = true;
+                state.outputSessionId = null;
+
+                if (state.sessionId) {
+                    displayBatchInfo(targetTabId);
+                }
+
+                if (state.files.length > 0) {
+                    displayUploadedFiles(state.files, targetTabId);
+                }
+
+                if (state.totalDicomCount > 0) {
+                    showStatus(`♻️ Restored batch with ${state.totalDicomCount} DICOM files.`, 'success', targetTabId);
+                    const optionsCard = document.getElementById(`optionsCard-${targetTabId}`);
+                    if (optionsCard) {
+                        optionsCard.classList.remove('hidden');
+                    }
+                } else {
+                    showStatus('Batch restored. Add DICOM files to continue.', 'info', targetTabId);
+                }
+            });
+
+            switchTab('tab-1');
+        }
+
         // Initialize first tab on page load
         window.addEventListener('load', () => {
             setupTabEventHandlers('tab-1');
-            showStatus('🚀 Ready to upload DICOM files. Drag and drop or click to select files.', 'info', 'tab-1');
+            restoreExistingSessions(appConfig.existingSessions);
         });
     </script>
 </body>

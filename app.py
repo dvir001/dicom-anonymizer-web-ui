@@ -357,11 +357,12 @@ def _current_session_state():
 
 
 def allowed_file(filename):
-    """Enhanced file validation with security checks."""
+    """Enhanced file validation that tolerates browser-relative paths."""
     if not filename:
         return False
 
-    filename = filename.lower()
+    # Browsers may send folder uploads as relative paths; only validate the basename.
+    filename = os.path.basename(filename).lower()
 
     dangerous_extensions = {
         '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.js', '.jar',
@@ -391,6 +392,12 @@ def is_dicom_file(filepath):
     """Check if file is a DICOM file using layered content-based validation."""
     if not filepath or not os.path.exists(filepath) or not os.path.isfile(filepath):
         return False
+
+    try:
+        if isDICOMType(filepath):
+            return True
+    except Exception:
+        logger.debug("isDICOMType check failed for %s", filepath, exc_info=True)
 
     try:
         with open(filepath, 'rb') as stream:
@@ -482,6 +489,57 @@ def _sanitize_relative_path(raw_path: str) -> tuple[str, str]:
     directory = os.path.join(*sanitized_parts[:-1])
     filename = sanitized_parts[-1]
     return directory, filename
+
+
+def _serialize_session_state(session_id: str) -> Optional[dict]:
+    """Build a client-safe representation of an upload session."""
+    session_dir = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
+    if not os.path.exists(session_dir):
+        return None
+
+    files: list[dict] = []
+    for root, _, filenames in os.walk(session_dir):
+        for filename in filenames:
+            file_path = os.path.join(root, filename)
+            if not os.path.isfile(file_path):
+                continue
+
+            rel_path = os.path.relpath(file_path, session_dir).replace('\\', '/')
+            from_zip = rel_path.startswith('extracted_')
+            original_archive = None
+
+            if from_zip:
+                first_segment = rel_path.split('/', 1)[0]
+                original_archive = first_segment.replace('extracted_', '')
+
+            files.append({
+                'name': filename,
+                'relative_path': rel_path,
+                'is_dicom': is_dicom_file(file_path),
+                'from_zip': from_zip,
+                'original_archive': original_archive,
+            })
+
+    files.sort(key=lambda item: item['relative_path'])
+    total_dicom = sum(1 for item in files if item['is_dicom'])
+
+    metadata = session_metadata.get(session_id, {})
+    created_ts = metadata.get('created')
+    created_iso = None
+    expires_in_seconds = None
+
+    if created_ts:
+        created_iso = datetime.datetime.fromtimestamp(created_ts).isoformat()
+        age_seconds = max(time.time() - created_ts, 0)
+        expires_in_seconds = max(int(SESSION_TIMEOUT_MINUTES_FILE * 60 - age_seconds), 0)
+
+    return {
+        'session_id': session_id,
+        'files': files,
+        'total_dicom_count': total_dicom,
+        'created': created_iso,
+        'expires_in_seconds': expires_in_seconds
+    }
 
 
 def get_consistent_random_number(name):
@@ -723,13 +781,34 @@ def index():
     if not is_authenticated:
         session.clear()
 
+    existing_sessions: list[dict] = []
+
+    if is_authenticated:
+        user_sessions = session.get('user_sessions', [])
+        valid_sessions = []
+
+        for session_id in user_sessions:
+            serialized = _serialize_session_state(session_id)
+            if serialized is None:
+                _clear_session_activity(session_id)
+                continue
+
+            existing_sessions.append(serialized)
+            valid_sessions.append(session_id)
+
+        if valid_sessions != user_sessions:
+            session['user_sessions'] = valid_sessions
+
+        existing_sessions.sort(key=lambda item: item.get('created') or '')
+
     return render_template(
         'index.html',
         is_authenticated=is_authenticated,
         session_timeout_minutes=SESSION_TIMEOUT_MINUTES,
         session_remaining_seconds=remaining_seconds,
         login_lockout_duration=LOGIN_LOCKOUT_DURATION,
-        max_login_attempts=MAX_LOGIN_ATTEMPTS
+        max_login_attempts=MAX_LOGIN_ATTEMPTS,
+        existing_sessions=existing_sessions
     )
 
 

@@ -1136,18 +1136,16 @@
             }
 
             const triggerFilePicker = (inputElement) => {
-                if (!finalUploadArea.classList.contains('disabled')) {
+                if (!finalUploadArea.classList.contains('disabled') && inputElement) {
                     inputElement.click();
                 }
             };
-
-            // Click handler on area defaults to file picker
-            finalUploadArea.addEventListener('click', () => triggerFilePicker(finalFileInput));
 
             // Dedicated buttons for files/folders
             if (selectFilesBtn) {
                 selectFilesBtn.addEventListener('click', (event) => {
                     event.stopPropagation();
+                    event.preventDefault();
                     triggerFilePicker(finalFileInput);
                 });
             }
@@ -1155,6 +1153,7 @@
             if (selectFolderBtn) {
                 selectFolderBtn.addEventListener('click', (event) => {
                     event.stopPropagation();
+                    event.preventDefault();
                     triggerFilePicker(finalFolderInput);
                 });
             }

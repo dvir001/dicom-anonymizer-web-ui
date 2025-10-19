@@ -1312,16 +1312,19 @@ def download_anonymized(session_id):
         else:
             # Multiple files - create ZIP archive
             zip_path = os.path.join(app.config['OUTPUT_FOLDER'], f'{session_id}_anonymized.zip')
-            
+
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 for file_path in all_files:
                     arc_path = os.path.relpath(file_path, output_dir)
                     zipf.write(file_path, arc_path)
-            
+
+            timestamp = datetime.datetime.now().replace(microsecond=0).isoformat()
+            download_name = f'anonymized_dicom_files_{timestamp}.zip'
+
             return send_file(
                 zip_path,
                 as_attachment=True,
-                download_name='anonymized_dicom_files.zip',
+                download_name=download_name,
                 mimetype='application/zip'
             )
         

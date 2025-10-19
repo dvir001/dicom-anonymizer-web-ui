@@ -268,6 +268,14 @@
             border-style: solid;
         }
 
+        .upload-controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+
         .upload-icon {
             font-size: 3em;
             color: #007bff;
@@ -570,11 +578,12 @@
                         <li>Standard - Comprehensive DICOM anonymization following industry standards</li>
                     </ul>
                 </li>
-                <li><strong>File Support:</strong> Accepts any file type - DICOM files are automatically detected by content</li>
+                <li><strong>File Support:</strong> Accepts any file type (up to 3GB per session) - DICOM files are automatically detected by content</li>
                 <li><strong>ZIP Archives:</strong> Automatically extracts and processes DICOM files from ZIP archives</li>
                 <li><strong>Batch Processing:</strong> Upload multiple files at once, add more before processing</li>
                 <li><strong>Structure Preservation:</strong> Maintains original folder hierarchy in anonymized output</li>
-                <li><strong>Security:</strong> Files are automatically deleted after 10 minutes</li>
+                <li><strong>Auto-Cleanup:</strong> Files are automatically deleted after 30 minutes or when you logout</li>
+                <li><strong>Storage Management:</strong> 20GB total storage with automatic space management</li>
             </ul>
         </div>
 
@@ -596,9 +605,14 @@
                 <div class="upload-area" id="uploadArea-tab-1">
                     <div class="upload-icon">📁</div>
                     <h3>📤 Upload Files to Batch</h3>
-                    <p>Click to select files or drag and drop</p>
+                    <p>Click to select files, drag and drop, or choose a folder</p>
                     <p><small>You can add more files before starting anonymization</small></p>
-                    <input type="file" id="fileInput-tab-1" multiple style="display: none;">
+                    <div class="upload-controls">
+                        <button type="button" class="btn secondary" id="selectFiles-tab-1">📁 Select Files</button>
+                        <button type="button" class="btn secondary" id="selectFolder-tab-1">📂 Select Folder</button>
+                    </div>
+                    <input type="file" id="fileInputFiles-tab-1" multiple style="display: none;">
+                    <input type="file" id="fileInputFolder-tab-1" multiple webkitdirectory directory style="display: none;">
                 </div>
 
                 <div id="uploadProgress-tab-1" class="hidden">
@@ -649,7 +663,7 @@
                     <button class="btn" onclick="startOver('tab-1')">🔄 Start New Batch</button>
 
                     <div class="cleanup-info">
-                        <p><strong>Note:</strong> Files will be automatically deleted from the server after 10 minutes for security.</p>
+                        <p><strong>Note:</strong> Files will be automatically deleted from the server after 30 minutes or when you logout for security.</p>
                     </div>
                 </div>
             </div>
@@ -893,9 +907,14 @@
                 <div class="upload-area" id="uploadArea-${tabId}">
                     <div class="upload-icon">📁</div>
                     <h3>📤 Upload Files to Batch</h3>
-                    <p>Click to select files or drag and drop</p>
+                    <p>Click to select files, drag and drop, or choose a folder</p>
                     <p><small>You can add more files before starting anonymization</small></p>
-                    <input type="file" id="fileInput-${tabId}" multiple style="display: none;">
+                    <div class="upload-controls">
+                        <button type="button" class="btn secondary" id="selectFiles-${tabId}">📁 Select Files</button>
+                        <button type="button" class="btn secondary" id="selectFolder-${tabId}">📂 Select Folder</button>
+                    </div>
+                    <input type="file" id="fileInputFiles-${tabId}" multiple style="display: none;">
+                    <input type="file" id="fileInputFolder-${tabId}" multiple webkitdirectory directory style="display: none;">
                 </div>
 
                 <div id="uploadProgress-${tabId}" class="hidden">
@@ -946,7 +965,7 @@
                     <button class="btn" onclick="startOver('${tabId}')">🔄 Start New Batch</button>
 
                     <div class="cleanup-info">
-                        <p><strong>Note:</strong> Files will be automatically deleted from the server after 10 minutes for security.</p>
+                        <p><strong>Note:</strong> Files will be automatically deleted from the server after 30 minutes or when you logout for security.</p>
                     </div>
                 </div>
             `;
@@ -1025,10 +1044,14 @@
                 anonymizeBtn.textContent = '🔒 Start Anonymization';
             }
             
-            // Clear file input
-            const fileInput = tabContent.querySelector(`#fileInput-${tabId}`);
+            // Clear file inputs
+            const fileInput = tabContent.querySelector(`#fileInputFiles-${tabId}`);
             if (fileInput) {
                 fileInput.value = '';
+            }
+            const folderInput = tabContent.querySelector(`#fileInputFolder-${tabId}`);
+            if (folderInput) {
+                folderInput.value = '';
             }
             
             // Setup event handlers
@@ -1093,25 +1116,48 @@
 
         function setupTabEventHandlers(tabId) {
             const uploadArea = document.getElementById(`uploadArea-${tabId}`);
-            const fileInput = document.getElementById(`fileInput-${tabId}`);
+            if (!uploadArea) {
+                return;
+            }
 
-            // Remove old listeners by cloning
+            // Remove old listeners by cloning the upload area (including controls)
             const newUploadArea = uploadArea.cloneNode(true);
             uploadArea.parentNode.replaceChild(newUploadArea, uploadArea);
-            
-            const newFileInput = fileInput.cloneNode(true);
-            fileInput.parentNode.replaceChild(newFileInput, fileInput);
 
-            // Re-get elements after cloning
+            // Re-select fresh elements
             const finalUploadArea = document.getElementById(`uploadArea-${tabId}`);
-            const finalFileInput = document.getElementById(`fileInput-${tabId}`);
+            const finalFileInput = document.getElementById(`fileInputFiles-${tabId}`);
+            const finalFolderInput = document.getElementById(`fileInputFolder-${tabId}`);
+            const selectFilesBtn = document.getElementById(`selectFiles-${tabId}`);
+            const selectFolderBtn = document.getElementById(`selectFolder-${tabId}`);
 
-            // Click handler
-            finalUploadArea.addEventListener('click', () => {
+            if (!finalFileInput || !finalFolderInput) {
+                return;
+            }
+
+            const triggerFilePicker = (inputElement) => {
                 if (!finalUploadArea.classList.contains('disabled')) {
-                    finalFileInput.click();
+                    inputElement.click();
                 }
-            });
+            };
+
+            // Click handler on area defaults to file picker
+            finalUploadArea.addEventListener('click', () => triggerFilePicker(finalFileInput));
+
+            // Dedicated buttons for files/folders
+            if (selectFilesBtn) {
+                selectFilesBtn.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    triggerFilePicker(finalFileInput);
+                });
+            }
+
+            if (selectFolderBtn) {
+                selectFolderBtn.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    triggerFilePicker(finalFolderInput);
+                });
+            }
 
             // Drag and drop handlers
             ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
@@ -1129,6 +1175,7 @@
 
             finalUploadArea.addEventListener('drop', (e) => handleDrop(e, tabId), false);
             finalFileInput.addEventListener('change', (e) => handleFileSelect(e, tabId));
+            finalFolderInput.addEventListener('change', (e) => handleFileSelect(e, tabId));
 
             // Radio button handlers for anonymization mode
             document.querySelectorAll(`input[name="anonymizationMode-${tabId}"]`).forEach(radio => {
@@ -1166,15 +1213,80 @@
             }
         }
 
-        function handleDrop(e, tabId) {
+        function readAllDirectoryEntries(reader) {
+            return new Promise((resolve, reject) => {
+                const entries = [];
+                const readEntries = () => {
+                    reader.readEntries(results => {
+                        if (!results.length) {
+                            resolve(entries);
+                        } else {
+                            entries.push(...results);
+                            readEntries();
+                        }
+                    }, reject);
+                };
+                readEntries();
+            });
+        }
+
+        async function traverseFileTree(entry, path = '') {
+            if (entry.isFile) {
+                return new Promise(resolve => {
+                    entry.file(file => {
+                        const relativePath = `${path}${file.name}`;
+                        try {
+                            Object.defineProperty(file, 'relativePath', { value: relativePath, configurable: true });
+                            Object.defineProperty(file, 'webkitRelativePath', { value: relativePath, configurable: true });
+                        } catch (err) {
+                            file.relativePath = relativePath;
+                            file.webkitRelativePath = relativePath;
+                        }
+                        resolve([file]);
+                    }, () => resolve([]));
+                });
+            }
+
+            if (entry.isDirectory) {
+                const reader = entry.createReader();
+                let entries = [];
+                try {
+                    entries = await readAllDirectoryEntries(reader);
+                } catch (error) {
+                    console.error('Error reading directory entries', error);
+                    return [];
+                }
+                const childFiles = await Promise.all(entries.map(child => traverseFileTree(child, `${path}${entry.name}/`)));
+                return childFiles.flat();
+            }
+
+            return [];
+        }
+
+        async function handleDrop(e, tabId) {
             const uploadArea = document.getElementById(`uploadArea-${tabId}`);
             if (uploadArea.classList.contains('disabled')) {
                 return;
             }
             
             const dt = e.dataTransfer;
-            const files = Array.from(dt.files);
-            
+            let files = [];
+
+            if (dt.items && dt.items.length) {
+                const entryPromises = Array.from(dt.items)
+                    .map(item => (typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null))
+                    .filter(entry => entry);
+
+                if (entryPromises.length) {
+                    const traversed = await Promise.all(entryPromises.map(entry => traverseFileTree(entry)));
+                    files = traversed.flat();
+                }
+            }
+
+            if (!files.length && dt.files) {
+                files = Array.from(dt.files);
+            }
+
             if (files.length > 0) {
                 uploadFiles(files, tabId);
             }
@@ -1203,7 +1315,11 @@
             }
 
             const formData = new FormData();
-            files.forEach(file => formData.append('files', file));
+            files.forEach(file => {
+                formData.append('files', file);
+                const relPath = file.webkitRelativePath || file.relativePath || '';
+                formData.append('relative_paths', relPath);
+            });
             
             // Include existing session ID if we're adding to a batch
             if (state.sessionId) {
@@ -1501,8 +1617,15 @@
             
             resetTabContent(tabContent, tabId);
             
-            // Clear file input
-            document.getElementById(`fileInput-${tabId}`).value = '';
+            // Clear file inputs
+            const fileInput = document.getElementById(`fileInputFiles-${tabId}`);
+            const folderInput = document.getElementById(`fileInputFolder-${tabId}`);
+            if (fileInput) {
+                fileInput.value = '';
+            }
+            if (folderInput) {
+                folderInput.value = '';
+            }
             
             // Hide all sections
             document.getElementById(`batchInfo-${tabId}`).classList.add('hidden');

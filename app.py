@@ -13,6 +13,9 @@ import datetime
 import hashlib
 import logging
 import secrets
+import re
+import posixpath
+from typing import Optional
 from flask import Flask, render_template, request, send_file, jsonify, session, redirect, url_for, flash
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -20,6 +23,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import zipfile
 from dicomanonymizer.simpledicomanonymizer import anonymize_dicom_file
 from dicomanonymizer.anonymizer import isDICOMType
+from pydicom import dcmread
+from pydicom.errors import InvalidDicomError
 import json
 import traceback
 from functools import wraps
@@ -51,7 +56,7 @@ elif len(_secret_key) < 32:
     logger.warning("SECRET_KEY is shorter than 32 characters; consider using a 64-character random string")
 
 app.config['SECRET_KEY'] = _secret_key
-app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB max file size
+app.config['MAX_CONTENT_LENGTH'] = 3 * 1024 * 1024 * 1024  # 3GB max file size
 
 # Configure proxy support for proper HTTPS detection behind reverse proxies
 # This enables the app to trust X-Forwarded-* headers from nginx
@@ -108,20 +113,67 @@ app.config['OUTPUT_FOLDER'] = str(OUTPUT_FOLDER)
 
 # Session tracking for automatic cleanup (10 minutes)
 session_timestamps = {}
+session_metadata = {}
+user_session_counts = {}
 session_lock = threading.Lock()
+
+# Storage management configuration
+MAX_TOTAL_STORAGE = 20 * 1024 * 1024 * 1024  # 20GB total storage limit
+SESSION_TIMEOUT_MINUTES_FILE = int(os.getenv('SESSION_FILE_TIMEOUT_MINUTES', '30'))
+MAX_SESSIONS_PER_USER = int(os.getenv('MAX_SESSIONS_PER_USER', '3'))
 
 # Global cache for consistent name mappings during anonymization
 name_mapping_cache = {}
 
 
-def _record_session_activity(session_id: str) -> None:
+def _get_directory_size(path: str) -> int:
+    total_size = 0
+    for dirpath, _, filenames in os.walk(path):
+        for filename in filenames:
+            file_path = os.path.join(dirpath, filename)
+            try:
+                total_size += os.path.getsize(file_path)
+            except OSError:
+                continue
+    return total_size
+
+
+def _get_total_storage_usage() -> int:
+    total = 0
+    for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER]:
+        if os.path.exists(folder):
+            total += _get_directory_size(str(folder))
+    return total
+
+
+def _record_session_activity(session_id: str, session_size: int = 0, fingerprint: Optional[str] = None) -> None:
     with session_lock:
-        session_timestamps[session_id] = time.time()
+        now = time.time()
+        session_timestamps[session_id] = now
+        metadata = session_metadata.get(session_id, {}).copy()
+        if not metadata:
+            metadata = {'created': now, 'last_size': 0, 'fingerprint': fingerprint}
+        else:
+            metadata.setdefault('created', now)
+            if fingerprint:
+                metadata['fingerprint'] = fingerprint
+
+        if session_size >= 0:
+            metadata['last_size'] = session_size
+
+        session_metadata[session_id] = metadata
 
 
 def _clear_session_activity(session_id: str) -> None:
     with session_lock:
         session_timestamps.pop(session_id, None)
+        metadata = session_metadata.pop(session_id, None)
+        if metadata:
+            fingerprint = metadata.get('fingerprint')
+            if fingerprint and fingerprint in user_session_counts:
+                user_session_counts[fingerprint] = max(0, user_session_counts[fingerprint] - 1)
+                if user_session_counts[fingerprint] == 0:
+                    user_session_counts.pop(fingerprint, None)
 
 
 def _active_session_count() -> int:
@@ -305,25 +357,93 @@ def _current_session_state():
 
 
 def allowed_file(filename):
-    """
-    Allow all files regardless of extension.
-    DICOM validation is performed using content-based checks.
-    """
+    """Enhanced file validation with security checks."""
+    if not filename:
+        return False
+
+    filename = filename.lower()
+
+    dangerous_extensions = {
+        '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.js', '.jar',
+        '.sh', '.py', '.pl', '.php', '.asp', '.aspx', '.jsp', '.ps1', '.psm1'
+    }
+
+    for ext in dangerous_extensions:
+        if filename.endswith(ext):
+            logger.warning("Blocked upload of potentially dangerous file: %s", filename)
+            return False
+
+    parts = filename.split('.')
+    if len(parts) > 2:
+        for part in parts[1:-1]:
+            if f'.{part}' in dangerous_extensions:
+                logger.warning("Blocked upload of file with dangerous hidden extension: %s", filename)
+                return False
+
+    if '\x00' in filename or '..' in filename or '/' in filename or '\\' in filename:
+        logger.warning("Blocked upload of file with dangerous characters: %s", filename)
+        return False
+
     return True
 
 
 def is_dicom_file(filepath):
-    """Check if file is a DICOM file using content-based validation."""
+    """Check if file is a DICOM file using layered content-based validation."""
+    if not filepath or not os.path.exists(filepath) or not os.path.isfile(filepath):
+        return False
+
+    try:
+        with open(filepath, 'rb') as stream:
+            preamble = stream.read(132)
+            if len(preamble) >= 132 and preamble[128:132] == b'DICM':
+                return True
+    except OSError:
+        return False
+
+    try:
+        dcmread(filepath, stop_before_pixels=True, force=True)
+        return True
+    except InvalidDicomError:
+        pass
+    except Exception:
+        logger.exception("Unexpected error while probing DICOM file: %s", filepath)
+
     try:
         return isDICOMType(filepath)
-    except:
+    except Exception:
         return False
 
 
 def safe_makedirs(path):
-    """Safely create directories with comprehensive error handling."""
+    """Safely create directories with comprehensive error handling and validation."""
     try:
-        os.makedirs(path, exist_ok=True)
+        normalized_path = os.path.normpath(path)
+
+        if normalized_path.startswith('..'):
+            logger.error("Attempted path traversal in directory creation: %s", path)
+            return False
+
+        abs_path = os.path.abspath(normalized_path)
+        norm_abs_path = os.path.normcase(abs_path)
+        normalized_bases = [
+            os.path.normcase(os.path.abspath(str(UPLOAD_FOLDER))),
+            os.path.normcase(os.path.abspath(str(OUTPUT_FOLDER))),
+            os.path.normcase(os.path.abspath(tempfile.gettempdir()))
+        ]
+
+        try:
+            base_allowed = any(
+                os.path.commonpath([norm_abs_path, base]) == base
+                for base in normalized_bases
+            )
+        except ValueError:
+            base_allowed = False
+
+        if not base_allowed:
+            logger.error("Path outside allowed directories: %s", abs_path)
+            return False
+
+        os.makedirs(abs_path, exist_ok=True)
         return True
     except PermissionError as e:
         logger.error("Permission error creating directory %s: %s", path, e)
@@ -331,6 +451,37 @@ def safe_makedirs(path):
     except Exception as e:
         logger.exception("Unexpected error creating directory %s", path)
         return False
+
+
+def _sanitize_relative_path(raw_path: str) -> tuple[str, str]:
+    """Sanitize and split a relative path into directory and filename components."""
+    if not raw_path:
+        return '', ''
+
+    cleaned = raw_path.replace('\\', '/').strip()
+    if not cleaned:
+        return '', ''
+
+    cleaned = cleaned.lstrip('/')
+    normalized = posixpath.normpath(cleaned)
+    if normalized in ('', '.', '..') or normalized.startswith('../'):
+        return '', ''
+
+    parts = [part for part in normalized.split('/') if part not in ('', '.', '..')]
+    if not parts:
+        return '', ''
+
+    sanitized_parts = [secure_filename(part) for part in parts]
+    sanitized_parts = [part for part in sanitized_parts if part]
+    if not sanitized_parts:
+        return '', ''
+
+    if len(sanitized_parts) == 1:
+        return '', sanitized_parts[0]
+
+    directory = os.path.join(*sanitized_parts[:-1])
+    filename = sanitized_parts[-1]
+    return directory, filename
 
 
 def get_consistent_random_number(name):
@@ -451,9 +602,10 @@ def cleanup_old_sessions():
             with session_lock:
                 sessions_snapshot = list(session_timestamps.items())
 
+            timeout_seconds = SESSION_TIMEOUT_MINUTES_FILE * 60
             sessions_to_remove = [
                 session_id for session_id, timestamp in sessions_snapshot
-                if current_time - timestamp > 600
+                if current_time - timestamp > timeout_seconds
             ]
             
             # Clean up old sessions
@@ -475,8 +627,7 @@ def cleanup_old_sessions():
                         os.remove(zip_file)
                     
                     # Remove from tracking
-                    with session_lock:
-                        session_timestamps.pop(session_id, None)
+                    _clear_session_activity(session_id)
                     
                 except Exception as e:
                     logger.exception("Error cleaning up session %s", session_id)
@@ -694,7 +845,23 @@ def login():
 
 @app.route('/logout', methods=['POST', 'GET'])
 def logout():
-    """User logout endpoint."""
+    """User logout endpoint with session cleanup."""
+    user_sessions = session.get('user_sessions', [])
+
+    for tracked_session in user_sessions:
+        try:
+            upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], tracked_session)
+            output_dir = os.path.join(app.config['OUTPUT_FOLDER'], tracked_session)
+
+            if os.path.exists(upload_dir):
+                shutil.rmtree(upload_dir)
+            if os.path.exists(output_dir):
+                shutil.rmtree(output_dir)
+
+            _clear_session_activity(tracked_session)
+        except Exception:
+            logger.exception("Error cleaning up user session %s on logout", tracked_session)
+
     session.clear()
 
     if _request_wants_json():
@@ -709,7 +876,7 @@ def logout():
 def upload_files():
     """
     Handle file uploads with DICOM validation and ZIP extraction.
-    Now supports adding files to existing session instead of overwriting.
+    Enhanced with size validation, storage checks, and secure folder support.
     """
     if 'files' not in request.files:
         return jsonify({'error': 'No files uploaded'}), 400
@@ -717,15 +884,54 @@ def upload_files():
     files = request.files.getlist('files')
     if not files or files[0].filename == '':
         return jsonify({'error': 'No files selected'}), 400
+
+    client_fingerprint = get_client_fingerprint(request)
+
+    total_upload_size = 0
+    for storage_file in files:
+        if storage_file and hasattr(storage_file, 'content_length') and storage_file.content_length:
+            total_upload_size += storage_file.content_length
+        elif storage_file:
+            try:
+                stream = storage_file.stream
+                current_pos = stream.tell()
+                stream.seek(0, os.SEEK_END)
+                total_upload_size += stream.tell()
+                stream.seek(current_pos)
+            except (OSError, AttributeError):
+                pass
+
+    if total_upload_size > app.config['MAX_CONTENT_LENGTH']:
+        return jsonify({
+            'error': f'Upload size ({total_upload_size // (1024 * 1024)} MB) exceeds session limit (3GB)'
+        }), 413
+
+    current_storage = _get_total_storage_usage()
+    if current_storage + total_upload_size > MAX_TOTAL_STORAGE * 0.9:
+        return jsonify({
+            'error': 'Server storage nearly full. Please try again later or contact administrator.'
+        }), 507
     
     # Get existing session ID or create new one
     session_id = request.form.get('session_id')
     is_new_session = False
     
-    if not session_id:
+    if session_id:
+        if not re.match(r'^[a-f0-9]{32}$', session_id):
+            return jsonify({'error': 'Invalid session ID format'}), 400
+    else:
         session_id = os.urandom(16).hex()
         is_new_session = True
-    
+
+        with session_lock:
+            user_sessions = user_session_counts.get(client_fingerprint, 0)
+            if user_sessions >= MAX_SESSIONS_PER_USER:
+                return jsonify({
+                    'error': f'Maximum {MAX_SESSIONS_PER_USER} concurrent sessions allowed per user. Please close existing sessions first.'
+                }), 429
+
+            user_session_counts[client_fingerprint] = user_sessions + 1
+
     session_dir = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
     
     # Validate session exists if not new
@@ -733,87 +939,158 @@ def upload_files():
         return jsonify({'error': 'Session not found'}), 404
     
     # Track session timestamp for cleanup
-    _record_session_activity(session_id)
+    _record_session_activity(session_id, fingerprint=client_fingerprint)
+
+    if 'user_sessions' not in session:
+        session['user_sessions'] = []
+    if session_id not in session['user_sessions']:
+        session['user_sessions'].append(session_id)
+        session.permanent = True
     
     # Create session directory if new
     if is_new_session:
         if not safe_makedirs(session_dir):
+            _clear_session_activity(session_id)
+            if 'user_sessions' in session and session_id in session['user_sessions']:
+                session['user_sessions'].remove(session_id)
             return jsonify({'error': 'Failed to create upload directory. Permission denied.'}), 500
     
     uploaded_files = []
-    
-    # Get list of existing files in session
-    existing_files = set()
-    if not is_new_session:
-        for root, dirs, files_in_dir in os.walk(session_dir):
-            for file in files_in_dir:
-                existing_files.add(file)
-    
+    existing_paths = set()
+    if os.path.exists(session_dir):
+        for root, _, files_in_dir in os.walk(session_dir):
+            for existing in files_in_dir:
+                rel_existing = os.path.relpath(os.path.join(root, existing), session_dir)
+                existing_paths.add(os.path.normpath(rel_existing))
+
+    raw_relative_paths = list(request.form.getlist('relative_paths'))
+    if len(raw_relative_paths) < len(files):
+        raw_relative_paths.extend([''] * (len(files) - len(raw_relative_paths)))
+
+    sanitized_rel_paths = []
+    for raw_path in raw_relative_paths:
+        rel_dir, rel_filename = _sanitize_relative_path(raw_path)
+        sanitized_rel_paths.append((rel_dir, rel_filename))
+
     try:
-        file_counter = len(existing_files)
-        
-        for file in files:
-            if file:
-                original_filename = file.filename if file.filename else f"unnamed_file_{file_counter}"
-                filename = secure_filename(original_filename)
-                
-                # Ensure unique filename if file already exists
-                base_name, ext = os.path.splitext(filename)
-                counter = 1
-                unique_filename = filename
-                while unique_filename in existing_files or os.path.exists(os.path.join(session_dir, unique_filename)):
-                    unique_filename = f"{base_name}_{counter}{ext}"
-                    counter += 1
-                
-                filepath = os.path.join(session_dir, unique_filename)
-                file.save(filepath)
-                existing_files.add(unique_filename)
-                file_counter += 1
-                
-                # Handle ZIP files (validate by content, not extension)
-                is_zip = False
-                try:
-                    with zipfile.ZipFile(filepath, 'r') as test_zip:
+        for index, storage_file in enumerate(files):
+            if not storage_file:
+                continue
+
+            original_filename = storage_file.filename or f"unnamed_file_{index}"
+
+            if original_filename.endswith('/') or original_filename.endswith('\\'):
+                # Directory placeholder from folder uploads
+                continue
+
+            if not allowed_file(original_filename):
+                logger.warning("Rejected file upload (extension policy): %s", original_filename)
+                continue
+
+            raw_rel_dir, raw_rel_filename = sanitized_rel_paths[index] if index < len(sanitized_rel_paths) else ('', '')
+
+            sanitized_filename = secure_filename(raw_rel_filename or original_filename)
+            if not sanitized_filename:
+                sanitized_filename = hashlib.sha1(original_filename.encode('utf-8', errors='ignore') or b'file').hexdigest()[:16]
+
+            if sanitized_filename.startswith('.'):
+                sanitized_filename = sanitized_filename.lstrip('.') or sanitized_filename
+
+            if len(sanitized_filename) > 255:
+                sanitized_filename = sanitized_filename[:255]
+
+            rel_dir = raw_rel_dir
+            target_name = sanitized_filename
+
+            base_name, ext = os.path.splitext(target_name)
+            suffix = 1
+            rel_candidate = os.path.normpath(os.path.join(rel_dir, target_name)) if rel_dir else os.path.normpath(target_name)
+
+            while rel_candidate in existing_paths or os.path.exists(os.path.join(session_dir, rel_candidate)):
+                target_name = f"{base_name}_{suffix}{ext}" if ext else f"{base_name}_{suffix}"
+                suffix += 1
+                rel_candidate = os.path.normpath(os.path.join(rel_dir, target_name)) if rel_dir else os.path.normpath(target_name)
+
+            target_directory = os.path.join(session_dir, rel_dir) if rel_dir else session_dir
+            if rel_dir and not safe_makedirs(target_directory):
+                logger.error("Failed to create target directory for upload: %s", target_directory)
+                continue
+
+            filepath = os.path.join(target_directory, target_name)
+            abs_filepath = os.path.abspath(filepath)
+            abs_session_dir = os.path.abspath(session_dir)
+
+            try:
+                if os.path.commonpath([abs_filepath, abs_session_dir]) != abs_session_dir:
+                    logger.error("Path traversal attempt detected: %s", filepath)
+                    continue
+            except ValueError:
+                logger.error("Invalid path during upload: %s", filepath)
+                continue
+
+            storage_file.save(filepath)
+            existing_paths.add(rel_candidate)
+
+            is_zip = False
+            try:
+                with zipfile.ZipFile(filepath, 'r') as test_zip:
+                    total_size = sum(info.file_size for info in test_zip.infolist())
+                    if total_size > 1024 * 1024 * 1024:
+                        logger.warning("ZIP file too large when extracted: %s (%d bytes)", filepath, total_size)
+                        os.remove(filepath)
+                        existing_paths.discard(rel_candidate)
+                        continue
+
+                    for info in test_zip.infolist():
+                        if '..' in info.filename or info.filename.startswith('/') or '\\' in info.filename:
+                            logger.warning("Malicious path in ZIP file: %s", info.filename)
+                            os.remove(filepath)
+                            existing_paths.discard(rel_candidate)
+                            is_zip = False
+                            break
+                    else:
                         is_zip = True
-                except:
-                    is_zip = False
-                
-                if is_zip:
-                    extract_dir = os.path.join(session_dir, f'extracted_{unique_filename}')
-                    if not safe_makedirs(extract_dir):
-                        return jsonify({'error': 'Failed to create extraction directory'}), 500
-                    
-                    with zipfile.ZipFile(filepath, 'r') as zip_ref:
-                        zip_ref.extractall(extract_dir)
-                    
-                    # Remove the original ZIP file after extraction
+            except zipfile.BadZipFile:
+                is_zip = False
+            except Exception as exc:
+                logger.warning("Error processing ZIP file %s: %s", filepath, str(exc))
+                is_zip = False
+
+            if is_zip:
+                extract_dir = os.path.join(session_dir, f'extracted_{target_name}')
+                if not safe_makedirs(extract_dir):
                     os.remove(filepath)
-                    
-                    # Find DICOM files in extracted content
-                    for root, dirs, files_in_zip in os.walk(extract_dir):
-                        for zip_file in files_in_zip:
-                            full_path = os.path.join(root, zip_file)
-                            # Calculate relative path from session dir for consistent structure
-                            rel_path = os.path.relpath(full_path, session_dir)
-                            uploaded_files.append({
-                                'name': zip_file,
-                                'path': full_path,
-                                'relative_path': rel_path,
-                                'is_dicom': is_dicom_file(full_path),
-                                'from_zip': True,
-                                'original_archive': original_filename
-                            })
-                else:
-                    # Check if it's a DICOM file
-                    is_dicom = is_dicom_file(filepath)
-                    uploaded_files.append({
-                        'name': unique_filename,
-                        'path': filepath,
-                        'relative_path': unique_filename,
-                        'is_dicom': is_dicom,
-                        'from_zip': False,
-                        'original_archive': None
-                    })
+                    existing_paths.discard(rel_candidate)
+                    return jsonify({'error': 'Failed to create extraction directory'}), 500
+
+                with zipfile.ZipFile(filepath, 'r') as zip_ref:
+                    zip_ref.extractall(extract_dir)
+
+                os.remove(filepath)
+                existing_paths.discard(rel_candidate)
+
+                for root, _, files_in_zip in os.walk(extract_dir):
+                    for zip_file in files_in_zip:
+                        full_path = os.path.join(root, zip_file)
+                        rel_path = os.path.relpath(full_path, session_dir).replace('\\', '/')
+                        uploaded_files.append({
+                            'name': zip_file,
+                            'path': full_path,
+                            'relative_path': rel_path,
+                            'is_dicom': is_dicom_file(full_path),
+                            'from_zip': True,
+                            'original_archive': original_filename
+                        })
+            else:
+                normalized_rel_path = rel_candidate.replace('\\', '/')
+                uploaded_files.append({
+                    'name': target_name,
+                    'path': filepath,
+                    'relative_path': normalized_rel_path,
+                    'is_dicom': is_dicom_file(filepath),
+                    'from_zip': False,
+                    'original_archive': None
+                })
         
         # Clean up non-DICOM files immediately
         deleted_count = cleanup_non_dicom_files(uploaded_files, session_dir)
@@ -823,11 +1100,24 @@ def upload_files():
         
         # Get total count of all DICOM files in session (including previously uploaded)
         total_session_dicom_count = 0
-        for root, dirs, files_in_session in os.walk(session_dir):
+        for root, _, files_in_session in os.walk(session_dir):
             for file in files_in_session:
                 full_path = os.path.join(root, file)
                 if is_dicom_file(full_path):
                     total_session_dicom_count += 1
+
+        session_size = _get_directory_size(session_dir)
+        _record_session_activity(session_id, session_size, client_fingerprint)
+
+        total_storage = _get_total_storage_usage()
+        if total_storage > MAX_TOTAL_STORAGE * 0.8:
+            logger.warning(
+                "Storage usage at %.1f%% (%d MB / %d MB) after session %s upload",
+                (total_storage / MAX_TOTAL_STORAGE) * 100,
+                total_storage // (1024 * 1024),
+                MAX_TOTAL_STORAGE // (1024 * 1024),
+                session_id[:8]
+            )
         
         message = f'Added {len(uploaded_files)} files to batch.'
         if deleted_count > 0:
@@ -845,8 +1135,12 @@ def upload_files():
             'is_new_session': is_new_session
         })
         
-    except Exception as e:
-        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
+    except Exception as exc:
+        if is_new_session:
+            _clear_session_activity(session_id)
+            if 'user_sessions' in session and session_id in session['user_sessions']:
+                session['user_sessions'].remove(session_id)
+        return jsonify({'error': f'Upload failed: {str(exc)}'}), 500
 
 
 @app.route('/anonymize', methods=['POST'])
@@ -1076,11 +1370,12 @@ def status():
 
         for session_id, timestamp in sessions_snapshot:
             age_minutes = (current_time - timestamp) / 60
+            remaining_minutes = max(SESSION_TIMEOUT_MINUTES_FILE - age_minutes, 0)
             active_sessions.append({
                 'session_id': session_id,
                 'created': datetime.datetime.fromtimestamp(timestamp).isoformat(),
                 'age_minutes': round(age_minutes, 2),
-                'expires_in_minutes': round(10 - age_minutes, 2) if age_minutes < 10 else 0
+                'expires_in_minutes': round(remaining_minutes, 2)
             })
         
         return jsonify({
@@ -1150,7 +1445,7 @@ def debug_login_attempts():
 @app.errorhandler(413)
 def too_large(e):
     """Handle file too large errors."""
-    return jsonify({'error': 'File too large. Maximum size is 1GB.'}), 413
+    return jsonify({'error': 'File too large. Maximum size is 3GB per session.'}), 413
 
 
 if __name__ == '__main__':

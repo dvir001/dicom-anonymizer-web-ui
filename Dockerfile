@@ -26,6 +26,8 @@ COPY . .
 RUN adduser --disabled-password --gecos '' appuser
 
 # Create necessary directories with proper ownership and permissions
+# Note: Application supports up to 20GB total storage (12GB uploads + 8GB outputs)
+# with automatic cleanup after 30 minutes or on logout
 RUN mkdir -p temp_uploads temp_outputs && \
     chown -R appuser:appuser /app && \
     chmod -R 755 /app

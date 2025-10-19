@@ -13,7 +13,13 @@ services:
       - FLASK_APP=${FLASK_APP:-app.py}
       - APP_PASSWORD=${APP_PASSWORD:-secure_password_here}
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-fallback-secret-key}
+      # Session configuration (authentication vs file storage timeouts)
       - SESSION_TIMEOUT_MINUTES=${SESSION_TIMEOUT_MINUTES:-60}
+      - SESSION_FILE_TIMEOUT_MINUTES=${SESSION_FILE_TIMEOUT_MINUTES:-30}
+      # Concurrent session limits and performance
+      - MAX_SESSIONS_PER_USER=${MAX_SESSIONS_PER_USER:-3}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ANONYMOUS_RATE_LIMIT=${ANONYMOUS_RATE_LIMIT:-10}
       # Brute force protection configuration
       - MAX_LOGIN_ATTEMPTS=${MAX_LOGIN_ATTEMPTS:-5}
       - LOGIN_LOCKOUT_DURATION=${LOGIN_LOCKOUT_DURATION:-300}
@@ -34,19 +40,23 @@ services:
       retries: ${HEALTH_CHECK_RETRIES:-3}
       start_period: ${HEALTH_CHECK_START_PERIOD:-40s}
 
+# Storage volumes - 20GB total capacity with automatic management
+# - 12GB for uploads (3GB max per session, multiple concurrent sessions)
+# - 8GB for outputs (anonymized files before download)
+# Files are automatically cleaned up after 30 minutes or on user logout
 volumes:
   dicom_uploads:
     driver: ${VOLUME_DRIVER:-local}
     driver_opts:
       type: ${VOLUME_TYPE:-tmpfs}
       device: ${VOLUME_DEVICE:-tmpfs}
-      o: ${VOLUME_OPTIONS:-size=10G,noexec,nosuid,nodev}
+      o: ${VOLUME_OPTIONS:-size=12G,noexec,nosuid,nodev}
   dicom_outputs:
     driver: ${VOLUME_DRIVER:-local}
     driver_opts:
       type: ${VOLUME_TYPE:-tmpfs}
       device: ${VOLUME_DEVICE:-tmpfs}
-      o: ${VOLUME_OPTIONS:-size=10G,noexec,nosuid,nodev}
+      o: ${VOLUME_OPTIONS:-size=8G,noexec,nosuid,nodev}
 
 networks:
   nginx_lan:

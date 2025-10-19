@@ -399,18 +399,88 @@
             border-left-color: #ffc107;
         }
 
-        .info-box {
+        .info-banner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 15px;
             background: linear-gradient(135deg, #e3f2fd, #f3e5f5);
             border: 1px solid #bbdefb;
             border-radius: 10px;
-            padding: 20px;
+            padding: 16px 20px;
             margin: 20px 0;
         }
 
-        .info-box h4 {
-            margin-top: 0;
+        .info-banner p {
+            margin: 0;
             color: #1976d2;
             font-weight: 500;
+        }
+
+        .info-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.45);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1050;
+        }
+
+        .info-modal.hidden {
+            display: none;
+        }
+
+        .info-modal-content {
+            max-width: 600px;
+            max-height: 75vh;
+            overflow-y: auto;
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+        }
+
+        .info-modal-content h4 {
+            margin-top: 0;
+            color: #1976d2;
+        }
+
+        .info-modal-content ul {
+            padding-left: 20px;
+        }
+
+        .info-modal-close {
+            margin-top: 20px;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .file-list-scroll {
+            max-height: 320px;
+            overflow-y: auto;
+            margin-top: 10px;
+            padding-right: 8px;
+        }
+
+        .file-list-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .file-list-summary {
+            color: #555;
+            font-size: 0.9em;
+        }
+
+        .empty-state {
+            margin: 0;
+            color: #666;
         }
 
         .card {
@@ -445,6 +515,43 @@
             background: linear-gradient(90deg, #007bff, #28a745);
             width: 0%;
             transition: width 0.3s ease;
+        }
+
+        .progress-fill.indeterminate {
+            width: 30%;
+            animation: progress-indeterminate 1.4s infinite;
+        }
+
+        .progress-actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 15px;
+            margin-top: 12px;
+        }
+
+        .progress-message {
+            flex: 1;
+            margin: 0;
+            text-align: left;
+            color: #666;
+        }
+
+        .progress-message strong {
+            color: #333;
+        }
+
+        .btn.danger {
+            background: linear-gradient(135deg, #dc3545, #b21f2d);
+        }
+
+        @keyframes progress-indeterminate {
+            0% {
+                transform: translateX(-100%);
+            }
+            100% {
+                transform: translateX(300%);
+            }
         }
 
         .button-group {
@@ -545,6 +652,15 @@
                 width: 100%;
                 margin: 5px 0;
             }
+
+            .info-banner {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .info-banner .btn {
+                width: auto;
+            }
         }
     </style>
 </head>
@@ -568,23 +684,33 @@
         </div>
         <h1>🏥 DICOM Anonymizer - Batch Processing</h1>
 
-        <div class="info-box">
-            <h4>📋 About DICOM Anonymizer</h4>
-            <p>A secure web-based tool for anonymizing DICOM medical imaging files while preserving essential metadata.</p>
-            <ul>
-                <li><strong>Two Anonymization Modes:</strong>
-                    <ul>
-                        <li>Minimal - Only removes patient names, IDs, and study IDs</li>
-                        <li>Standard - Comprehensive DICOM anonymization following industry standards</li>
-                    </ul>
-                </li>
-                <li><strong>File Support:</strong> Accepts any file type (up to 3GB per session) - DICOM files are automatically detected by content</li>
-                <li><strong>ZIP Archives:</strong> Automatically extracts and processes DICOM files from ZIP archives</li>
-                <li><strong>Batch Processing:</strong> Upload multiple files at once, add more before processing</li>
-                <li><strong>Structure Preservation:</strong> Maintains original folder hierarchy in anonymized output</li>
-                <li><strong>Auto-Cleanup:</strong> Files are automatically deleted after 30 minutes or when you logout</li>
-                <li><strong>Storage Management:</strong> 20GB total storage with automatic space management</li>
-            </ul>
+        <div class="info-banner">
+            <p>Secure DICOM anonymization with batch uploads, ZIP extraction, and folder preservation.</p>
+            <button type="button" class="btn secondary" id="aboutButton">ℹ️ About</button>
+        </div>
+
+        <div id="aboutModal" class="info-modal hidden">
+            <div class="info-modal-content">
+                <h4>📋 About DICOM Anonymizer</h4>
+                <p>A secure web-based tool for anonymizing DICOM medical imaging files while preserving essential metadata.</p>
+                <ul>
+                    <li><strong>Two Anonymization Modes:</strong>
+                        <ul>
+                            <li>Minimal - Only removes patient names, IDs, and study IDs</li>
+                            <li>Standard - Comprehensive DICOM anonymization following industry standards</li>
+                        </ul>
+                    </li>
+                    <li><strong>File Support:</strong> Accepts any file type (up to 3GB per session) - DICOM files are automatically detected by content</li>
+                    <li><strong>ZIP Archives:</strong> Automatically extracts and processes DICOM files from ZIP archives</li>
+                    <li><strong>Batch Processing:</strong> Upload multiple files at once, add more before processing</li>
+                    <li><strong>Structure Preservation:</strong> Maintains original folder hierarchy in anonymized output</li>
+                    <li><strong>Auto-Cleanup:</strong> Files are automatically deleted after 30 minutes or when you logout</li>
+                    <li><strong>Storage Management:</strong> 20GB total storage with automatic space management</li>
+                </ul>
+                <div class="info-modal-close">
+                    <button type="button" class="btn secondary" id="aboutCloseButton">Close</button>
+                </div>
+            </div>
         </div>
 
         <div class="tab-container">
@@ -619,7 +745,10 @@
                     <div class="progress-bar">
                         <div class="progress-fill" id="progressFill-tab-1"></div>
                     </div>
-                    <p id="progressText-tab-1" style="text-align: center; color: #666;">Uploading files...</p>
+                    <div class="progress-actions">
+                        <p id="progressText-tab-1" class="progress-message">Uploading files...</p>
+                        <button type="button" class="btn danger" id="cancelUpload-tab-1">✖ Cancel Upload</button>
+                    </div>
                 </div>
 
                 <div id="fileList-tab-1" class="hidden"></div>
@@ -693,6 +822,9 @@
         const loginError = document.getElementById('loginError');
         const logoutButton = document.getElementById('logoutButton');
         const sessionStatus = document.getElementById('sessionStatus');
+    const aboutButton = document.getElementById('aboutButton');
+    const aboutModal = document.getElementById('aboutModal');
+    const aboutCloseButton = document.getElementById('aboutCloseButton');
 
         function createEmptyTabState() {
             return {
@@ -700,7 +832,8 @@
                 outputSessionId: null,
                 uploadEnabled: true,
                 files: [],
-                totalDicomCount: 0
+                totalDicomCount: 0,
+                uploadController: null
             };
         }
 
@@ -765,6 +898,22 @@
             appConfig.authenticated = false;
             updateSessionUI(false);
             resetAllTabs();
+        }
+
+        function openAboutModal() {
+            if (!aboutModal) {
+                return;
+            }
+            aboutModal.classList.remove('hidden');
+            document.body.classList.add('modal-open');
+        }
+
+        function closeAboutModal() {
+            if (!aboutModal) {
+                return;
+            }
+            aboutModal.classList.add('hidden');
+            document.body.classList.remove('modal-open');
         }
 
         function unlockInterface() {
@@ -872,6 +1021,28 @@
             });
         }
 
+        if (aboutButton) {
+            aboutButton.addEventListener('click', openAboutModal);
+        }
+
+        if (aboutCloseButton) {
+            aboutCloseButton.addEventListener('click', closeAboutModal);
+        }
+
+        if (aboutModal) {
+            aboutModal.addEventListener('click', (event) => {
+                if (event.target === aboutModal) {
+                    closeAboutModal();
+                }
+            });
+        }
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && aboutModal && !aboutModal.classList.contains('hidden')) {
+                closeAboutModal();
+            }
+        });
+
         // Tab management functions
         function createNewTab() {
             tabCounter++;
@@ -921,7 +1092,10 @@
                     <div class="progress-bar">
                         <div class="progress-fill" id="progressFill-${tabId}"></div>
                     </div>
-                    <p id="progressText-${tabId}" style="text-align: center; color: #666;">Uploading files...</p>
+                    <div class="progress-actions">
+                        <p id="progressText-${tabId}" class="progress-message">Uploading files...</p>
+                        <button type="button" class="btn danger" id="cancelUpload-${tabId}">✖ Cancel Upload</button>
+                    </div>
                 </div>
 
                 <div id="fileList-${tabId}" class="hidden"></div>
@@ -1179,6 +1353,7 @@
             const finalFolderInput = document.getElementById(`fileInputFolder-${tabId}`);
             const selectFilesBtn = document.getElementById(`selectFiles-${tabId}`);
             const selectFolderBtn = document.getElementById(`selectFolder-${tabId}`);
+            const cancelUploadBtn = document.getElementById(`cancelUpload-${tabId}`);
 
             if (!finalFileInput || !finalFolderInput) {
                 return;
@@ -1224,6 +1399,12 @@
             finalUploadArea.addEventListener('drop', (e) => handleDrop(e, tabId), false);
             finalFileInput.addEventListener('change', (e) => handleFileSelect(e, tabId));
             finalFolderInput.addEventListener('change', (e) => handleFileSelect(e, tabId));
+
+            if (cancelUploadBtn) {
+                cancelUploadBtn.disabled = true;
+                cancelUploadBtn.classList.add('hidden');
+                cancelUploadBtn.addEventListener('click', () => cancelActiveUpload(tabId));
+            }
 
             // Radio button handlers for anonymization mode
             document.querySelectorAll(`input[name="anonymizationMode-${tabId}"]`).forEach(radio => {
@@ -1355,12 +1536,65 @@
 
         async function uploadFiles(files = [], tabId) {
             if (files.length === 0) return;
-            
+
             const state = tabStates[tabId];
             if (!state.uploadEnabled) {
                 showStatus('⚠️ Upload is disabled. Please start a new batch.', 'warning', tabId);
                 return;
             }
+
+            if (state.uploadController && state.uploadController.active) {
+                showStatus('⚠️ An upload is already in progress. Please cancel it or wait for completion.', 'warning', tabId);
+                return;
+            }
+
+            const anonymizeBtn = document.getElementById(`anonymizeBtn-${tabId}`);
+            const progressContainer = document.getElementById(`uploadProgress-${tabId}`);
+            const progressFill = document.getElementById(`progressFill-${tabId}`);
+            const progressText = document.getElementById(`progressText-${tabId}`);
+            const uploadStatus = document.getElementById(`uploadStatus-${tabId}`);
+            const cancelUploadBtn = document.getElementById(`cancelUpload-${tabId}`);
+
+            if (uploadStatus) {
+                uploadStatus.classList.add('hidden');
+            }
+
+            const showProgressState = (percent, message, indeterminate = false) => {
+                if (!progressContainer || !progressFill || !progressText) {
+                    return;
+                }
+                progressContainer.classList.remove('hidden');
+                progressFill.classList.toggle('indeterminate', indeterminate);
+                if (indeterminate) {
+                    progressFill.style.width = '30%';
+                } else {
+                    const clamped = Math.max(0, Math.min(100, percent || 0));
+                    progressFill.style.width = `${clamped}%`;
+                }
+                progressText.textContent = message;
+                if (cancelUploadBtn) {
+                    cancelUploadBtn.disabled = false;
+                    cancelUploadBtn.classList.remove('hidden');
+                }
+            };
+
+            const hideProgress = () => {
+                if (!progressContainer || !progressFill || !progressText) {
+                    return;
+                }
+                setTimeout(() => {
+                    progressContainer.classList.add('hidden');
+                    progressFill.classList.remove('indeterminate');
+                    progressFill.style.width = '0%';
+                    progressText.textContent = 'Preparing upload...';
+                    if (cancelUploadBtn) {
+                        cancelUploadBtn.disabled = true;
+                        cancelUploadBtn.classList.add('hidden');
+                    }
+                }, 800);
+            };
+
+            showProgressState(5, 'Preparing upload...');
 
             const formData = new FormData();
             files.forEach(file => {
@@ -1368,57 +1602,129 @@
                 const relPath = file.webkitRelativePath || file.relativePath || '';
                 formData.append('relative_paths', relPath);
             });
-            
-            // Include existing session ID if we're adding to a batch
+
             if (state.sessionId) {
                 formData.append('session_id', state.sessionId);
             }
 
-            showStatus('📤 Uploading files to batch...', 'info', tabId);
-
+            let uploadOutcome;
             try {
-                const response = await fetch('/upload', {
-                    method: 'POST',
-                    headers: {
-                        'Accept': 'application/json'
-                    },
-                    body: formData
-                });
+                uploadOutcome = await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    state.uploadController = { xhr, active: true };
+                    xhr.open('POST', '/upload', true);
+                    xhr.responseType = 'json';
+                    xhr.setRequestHeader('Accept', 'application/json');
 
-                const result = await parseJsonResponse(response, 'Session expired. Please login to continue.');
-                if (!result) {
+                    xhr.upload.addEventListener('loadstart', () => {
+                        showProgressState(5, 'Starting upload...');
+                    });
+
+                    xhr.upload.addEventListener('progress', (event) => {
+                        if (event.lengthComputable) {
+                            const percent = Math.round((event.loaded / event.total) * 100);
+                            const refined = Math.min(percent, 99);
+                            showProgressState(refined, `Uploading files... ${refined}%`);
+                        } else {
+                            showProgressState(50, 'Uploading files...', true);
+                        }
+                    });
+
+                    xhr.addEventListener('error', () => reject(new Error('Network error during upload.')));
+                    xhr.addEventListener('timeout', () => reject(new Error('Upload timed out.')));
+                    xhr.addEventListener('abort', () => {
+                        reject({ cancelled: true, message: 'Upload cancelled by user.' });
+                    });
+
+                    xhr.addEventListener('load', () => {
+                        let payload = xhr.response;
+                        if (!payload && xhr.responseText) {
+                            try {
+                                payload = JSON.parse(xhr.responseText);
+                            } catch (_) {
+                                payload = null;
+                            }
+                        }
+
+                        if (xhr.status === 401) {
+                            const message = (payload && payload.error) || 'Session expired. Please login to continue.';
+                            lockInterface(message);
+                            resolve({ unauthorized: true });
+                            return;
+                        }
+
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            showProgressState(100, 'Finalizing upload...');
+                            resolve({ data: payload });
+                            return;
+                        }
+
+                        const errorMessage = (payload && payload.error) || `Upload failed with status ${xhr.status}.`;
+                        reject(new Error(errorMessage));
+                    });
+
+                    xhr.send(formData);
+                });
+            } catch (error) {
+                const controller = state.uploadController;
+                if (controller) {
+                    controller.active = false;
+                }
+                state.uploadController = null;
+                hideProgress();
+                if (error && error.cancelled) {
+                    showStatus('ℹ️ Upload cancelled. You can try again when ready.', 'info', tabId);
+                } else {
+                    const message = error && error.message ? error.message : 'Upload failed.';
+                    showStatus(`❌ Upload failed: ${message}`, 'error', tabId);
+                }
+                return;
+            }
+
+            const controller = state.uploadController;
+            if (controller) {
+                controller.active = false;
+            }
+            state.uploadController = null;
+            hideProgress();
+
+            if (uploadOutcome && uploadOutcome.unauthorized) {
+                if (anonymizeBtn) {
                     anonymizeBtn.disabled = false;
                     anonymizeBtn.textContent = '🔒 Start Anonymization';
-                    enableUploadForTab(tabId);
-                    return;
+                }
+                enableUploadForTab(tabId);
+                return;
+            }
+
+            const result = uploadOutcome ? uploadOutcome.data : null;
+
+            if (result && result.success) {
+                state.sessionId = result.session_id;
+                state.totalDicomCount = result.total_dicom_count;
+
+                const uploadedFiles = Array.isArray(result.files) ? result.files : [];
+                if (result.is_new_session) {
+                    state.files = uploadedFiles;
+                } else {
+                    state.files = state.files.concat(uploadedFiles);
                 }
 
-                if (result.success) {
-                    // Update state
-                    state.sessionId = result.session_id;
-                    state.totalDicomCount = result.total_dicom_count;
-                    
-                    // Add new files to state
-                    if (result.is_new_session) {
-                        state.files = result.files;
-                    } else {
-                        state.files = state.files.concat(result.files);
-                    }
-                    
-                    displayBatchInfo(tabId);
-                    displayUploadedFiles(state.files, tabId);
+                displayBatchInfo(tabId);
+                displayUploadedFiles(state.files, tabId);
 
-                    if (state.totalDicomCount > 0) {
-                        showStatus(`✅ Batch contains ${state.totalDicomCount} DICOM files. You can add more or start processing.`, 'success', tabId);
-                        document.getElementById(`optionsCard-${tabId}`).classList.remove('hidden');
-                    } else {
-                        showStatus(`⚠️ No DICOM files detected in batch. Please add DICOM files.`, 'warning', tabId);
+                if (state.totalDicomCount > 0) {
+                    showStatus(`✅ Batch contains ${state.totalDicomCount} DICOM files. You can add more or start processing.`, 'success', tabId);
+                    const optionsCard = document.getElementById(`optionsCard-${tabId}`);
+                    if (optionsCard) {
+                        optionsCard.classList.remove('hidden');
                     }
                 } else {
-                    showStatus(`❌ Upload failed: ${result.error}`, 'error', tabId);
+                    showStatus('⚠️ No DICOM files detected in batch. Please add DICOM files.', 'warning', tabId);
                 }
-            } catch (error) {
-                showStatus(`❌ Upload failed: ${error.message}`, 'error', tabId);
+            } else {
+                const message = (result && result.error) || 'Upload failed. Please try again.';
+                showStatus(`❌ Upload failed: ${message}`, 'error', tabId);
             }
         }
 
@@ -1438,16 +1744,30 @@
         function displayUploadedFiles(files, tabId) {
             const fileList = document.getElementById(`fileList-${tabId}`);
             const batchFilesList = document.getElementById(`batchFilesList-${tabId}`);
-            
-            fileList.innerHTML = '<h4>📋 Files in Current Batch:</h4>';
+            const state = tabStates[tabId];
+
+            const totalFiles = files.length;
+            const dicomCount = state?.totalDicomCount || 0;
+
+            fileList.innerHTML = `
+                <div class="file-list-header">
+                    <h4>📋 Files in Current Batch</h4>
+                    <span class="file-list-summary">${totalFiles} files • ${dicomCount} DICOM</span>
+                </div>
+                <div class="file-list-scroll" id="fileListScroll-${tabId}"></div>
+            `;
+
+            const scrollContainer = document.getElementById(`fileListScroll-${tabId}`);
             batchFilesList.innerHTML = '';
 
-            if (files.length === 0) {
-                fileList.innerHTML += '<p>No files in batch.</p>';
+            if (totalFiles === 0) {
+                if (scrollContainer) {
+                    scrollContainer.innerHTML = '<p class="empty-state">No files in batch.</p>';
+                }
+                fileList.classList.remove('hidden');
                 return;
             }
 
-            // Group files by directory/archive
             const fileGroups = {};
             files.forEach(file => {
                 const groupKey = file.from_zip ? file.original_archive : 'Direct Upload';
@@ -1457,16 +1777,15 @@
                 fileGroups[groupKey].push(file);
             });
 
-            // Display grouped files
             Object.keys(fileGroups).forEach(group => {
                 const groupDiv = document.createElement('div');
                 groupDiv.style.marginBottom = '15px';
-                
+
                 const groupHeader = document.createElement('h5');
                 groupHeader.style.color = '#0066cc';
                 groupHeader.textContent = group;
                 groupDiv.appendChild(groupHeader);
-                
+
                 fileGroups[group].forEach(file => {
                     const fileItem = document.createElement('div');
                     fileItem.className = `file-item ${file.is_dicom ? 'dicom' : 'non-dicom'}`;
@@ -1480,8 +1799,7 @@
                         <span class="badge ${file.is_dicom ? 'dicom' : 'non-dicom'}">${fileStatus}</span>
                     `;
                     groupDiv.appendChild(fileItem);
-                    
-                    // Also add to batch files list (summary)
+
                     if (file.is_dicom) {
                         const summaryItem = document.createElement('div');
                         summaryItem.style.padding = '2px 5px';
@@ -1489,11 +1807,40 @@
                         batchFilesList.appendChild(summaryItem);
                     }
                 });
-                
-                fileList.appendChild(groupDiv);
+
+                if (scrollContainer) {
+                    scrollContainer.appendChild(groupDiv);
+                }
             });
 
             fileList.classList.remove('hidden');
+        }
+
+        function cancelActiveUpload(tabId) {
+            const state = tabStates[tabId];
+            if (!state || !state.uploadController || !state.uploadController.xhr) {
+                return;
+            }
+
+            const controller = state.uploadController;
+            const { xhr } = controller;
+            controller.active = false;
+            state.uploadController = null;
+
+            try {
+                xhr.abort();
+            } catch (error) {
+                console.warn('Error aborting upload', error);
+            }
+
+            const progressText = document.getElementById(`progressText-${tabId}`);
+            const cancelUploadBtn = document.getElementById(`cancelUpload-${tabId}`);
+            if (progressText) {
+                progressText.textContent = 'Cancelling upload...';
+            }
+            if (cancelUploadBtn) {
+                cancelUploadBtn.disabled = true;
+            }
         }
 
         function enableUploadForTab(tabId) {
@@ -1625,11 +1972,6 @@
             const state = tabStates[tabId];
             if (state.outputSessionId) {
                 window.location.href = `/download/${state.outputSessionId}`;
-                // Clean up after a delay
-                setTimeout(() => {
-                    fetch(`/cleanup/${state.outputSessionId}`);
-                    fetch(`/cleanup/${state.sessionId}`);
-                }, 3000);
             }
         }
 

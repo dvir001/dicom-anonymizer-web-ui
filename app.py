@@ -15,7 +15,7 @@ import logging
 import secrets
 import re
 import posixpath
-from typing import Optional
+from typing import Optional, List, Set
 from flask import Flask, render_template, request, send_file, jsonify, session, redirect, url_for, flash
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -125,6 +125,18 @@ MAX_SESSIONS_PER_USER = int(os.getenv('MAX_SESSIONS_PER_USER', '3'))
 # Global cache for consistent name mappings during anonymization
 name_mapping_cache = {}
 
+# Download packaging configuration (favor speed over compression by default)
+ZIP_COMPRESSION_MODE = os.getenv('ZIP_COMPRESSION_MODE', 'stored').lower()
+if ZIP_COMPRESSION_MODE == 'deflated':
+    ZIP_COMPRESSION = zipfile.ZIP_DEFLATED
+    try:
+        ZIP_COMPRESSLEVEL = int(os.getenv('ZIP_COMPRESSLEVEL', '4'))
+    except ValueError:
+        ZIP_COMPRESSLEVEL = 4
+else:
+    ZIP_COMPRESSION = zipfile.ZIP_STORED
+    ZIP_COMPRESSLEVEL = None
+
 
 def _get_directory_size(path: str) -> int:
     total_size = 0
@@ -136,6 +148,56 @@ def _get_directory_size(path: str) -> int:
             except OSError:
                 continue
     return total_size
+
+
+def _register_session_dicom_paths(session_id: str, new_paths: Optional[List[str]] = None) -> int:
+    """Track DICOM file paths for a session and return the updated count."""
+    if new_paths is None:
+        new_paths = []
+
+    with session_lock:
+        metadata = session_metadata.get(session_id, {}).copy()
+        dicom_paths = metadata.get('dicom_paths')
+
+        if isinstance(dicom_paths, set):
+            tracked = dicom_paths
+        elif isinstance(dicom_paths, list):
+            tracked = set(dicom_paths)
+        else:
+            tracked = set()
+
+        if new_paths:
+            tracked.update(path for path in new_paths if path)
+
+        metadata['dicom_paths'] = tracked
+        metadata['dicom_count'] = len(tracked)
+        session_metadata[session_id] = metadata
+
+        return metadata['dicom_count']
+
+
+def _get_tracked_dicom_paths(session_id: str) -> Set[str]:
+    """Return a copy of tracked DICOM paths for a session."""
+    with session_lock:
+        metadata = session_metadata.get(session_id, {})
+        dicom_paths = metadata.get('dicom_paths')
+
+        if isinstance(dicom_paths, set):
+            tracked = set(dicom_paths)
+        elif isinstance(dicom_paths, list):
+            tracked = set(dicom_paths)
+            metadata = metadata.copy()
+            metadata['dicom_paths'] = tracked
+            metadata['dicom_count'] = len(tracked)
+            session_metadata[session_id] = metadata
+        else:
+            tracked = set()
+            metadata = metadata.copy()
+            metadata['dicom_paths'] = tracked
+            metadata['dicom_count'] = 0
+            session_metadata[session_id] = metadata
+
+        return tracked
 
 
 def _get_total_storage_usage() -> int:
@@ -152,11 +214,19 @@ def _record_session_activity(session_id: str, session_size: int = 0, fingerprint
         session_timestamps[session_id] = now
         metadata = session_metadata.get(session_id, {}).copy()
         if not metadata:
-            metadata = {'created': now, 'last_size': 0, 'fingerprint': fingerprint}
+            metadata = {'created': now, 'last_size': 0, 'fingerprint': fingerprint, 'dicom_paths': set(), 'dicom_count': 0}
         else:
             metadata.setdefault('created', now)
             if fingerprint:
                 metadata['fingerprint'] = fingerprint
+
+        dicom_paths = metadata.get('dicom_paths')
+        if isinstance(dicom_paths, list):
+            dicom_paths = set(dicom_paths)
+        elif dicom_paths is None:
+            dicom_paths = set()
+        metadata['dicom_paths'] = dicom_paths
+        metadata['dicom_count'] = len(dicom_paths)
 
         if session_size >= 0:
             metadata['last_size'] = session_size
@@ -497,6 +567,10 @@ def _serialize_session_state(session_id: str) -> Optional[dict]:
     if not os.path.exists(session_dir):
         return None
 
+    tracked_dicom_paths = _get_tracked_dicom_paths(session_id)
+    working_dicom_paths = set(tracked_dicom_paths)
+    new_tracked_paths: List[str] = []
+
     files: list[dict] = []
     for root, _, filenames in os.walk(session_dir):
         for filename in filenames:
@@ -512,16 +586,27 @@ def _serialize_session_state(session_id: str) -> Optional[dict]:
                 first_segment = rel_path.split('/', 1)[0]
                 original_archive = first_segment.replace('extracted_', '')
 
+            is_dicom = rel_path in working_dicom_paths
+            if not is_dicom:
+                is_dicom = is_dicom_file(file_path)
+                if is_dicom:
+                    working_dicom_paths.add(rel_path)
+                    new_tracked_paths.append(rel_path)
+
             files.append({
                 'name': filename,
                 'relative_path': rel_path,
-                'is_dicom': is_dicom_file(file_path),
+                'is_dicom': is_dicom,
                 'from_zip': from_zip,
                 'original_archive': original_archive,
             })
 
     files.sort(key=lambda item: item['relative_path'])
-    total_dicom = sum(1 for item in files if item['is_dicom'])
+
+    if new_tracked_paths:
+        _register_session_dicom_paths(session_id, new_tracked_paths)
+
+    total_dicom = len(working_dicom_paths)
 
     metadata = session_metadata.get(session_id, {})
     created_ts = metadata.get('created')
@@ -1176,14 +1261,9 @@ def upload_files():
         
         # Filter out deleted files from the response
         dicom_files = [f for f in uploaded_files if f['is_dicom']]
-        
-        # Get total count of all DICOM files in session (including previously uploaded)
-        total_session_dicom_count = 0
-        for root, _, files_in_session in os.walk(session_dir):
-            for file in files_in_session:
-                full_path = os.path.join(root, file)
-                if is_dicom_file(full_path):
-                    total_session_dicom_count += 1
+
+        new_dicom_paths = [f.get('relative_path') for f in dicom_files if f.get('relative_path')]
+        total_session_dicom_count = _register_session_dicom_paths(session_id, new_dicom_paths)
 
         session_size = _get_directory_size(session_dir)
         _record_session_activity(session_id, session_size, client_fingerprint)
@@ -1391,11 +1471,25 @@ def download_anonymized(session_id):
         else:
             # Multiple files - create ZIP archive
             zip_path = os.path.join(app.config['OUTPUT_FOLDER'], f'{session_id}_anonymized.zip')
+            needs_rebuild = True
+            if os.path.exists(zip_path):
+                try:
+                    zip_mtime = os.path.getmtime(zip_path)
+                    latest_source_mtime = max(os.path.getmtime(fp) for fp in all_files)
+                    if zip_mtime >= latest_source_mtime:
+                        needs_rebuild = False
+                except OSError:
+                    needs_rebuild = True
 
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for file_path in all_files:
-                    arc_path = os.path.relpath(file_path, output_dir)
-                    zipf.write(file_path, arc_path)
+            if needs_rebuild:
+                compression_kwargs = {}
+                if ZIP_COMPRESSLEVEL is not None and ZIP_COMPRESSION == zipfile.ZIP_DEFLATED:
+                    compression_kwargs['compresslevel'] = ZIP_COMPRESSLEVEL
+
+                with zipfile.ZipFile(zip_path, 'w', ZIP_COMPRESSION, **compression_kwargs) as zipf:
+                    for file_path in all_files:
+                        arc_path = os.path.relpath(file_path, output_dir)
+                        zipf.write(file_path, arc_path)
 
             timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
             download_name = f'{timestamp}-dicom.zip'
@@ -1404,7 +1498,9 @@ def download_anonymized(session_id):
                 zip_path,
                 as_attachment=True,
                 download_name=download_name,
-                mimetype='application/zip'
+                mimetype='application/zip',
+                conditional=True,
+                max_age=0
             )
         
     except Exception as e:

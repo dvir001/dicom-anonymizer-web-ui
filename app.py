@@ -1318,8 +1318,8 @@ def download_anonymized(session_id):
                     arc_path = os.path.relpath(file_path, output_dir)
                     zipf.write(file_path, arc_path)
 
-            timestamp = datetime.datetime.now().replace(microsecond=0).isoformat()
-            download_name = f'anonymized_dicom_files_{timestamp}.zip'
+            timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
+            download_name = f'{timestamp}-dicom.zip'
 
             return send_file(
                 zip_path,

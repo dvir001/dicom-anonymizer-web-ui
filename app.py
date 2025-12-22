@@ -150,6 +150,45 @@ def _get_directory_size(path: str) -> int:
     return total_size
 
 
+def _extract_base_filename(filename: str) -> str:
+    """Return a safe base name to use when converting to .dcm."""
+    if not filename:
+        return 'dicom_file'
+
+    base, _ = os.path.splitext(filename)
+    sanitized = base.strip().strip('.')
+    return sanitized or 'dicom_file'
+
+
+def _ensure_dicom_filename(filename: str) -> str:
+    """Force a filename to use the .dcm extension while preserving the base name."""
+    base_name = _extract_base_filename(filename)
+    return f"{base_name}.dcm"
+
+
+def _compute_unique_dicom_rel_path(rel_path: str, used_paths: Optional[Set[str]] = None) -> str:
+    """Convert a relative path to use .dcm extension and avoid duplicates within a session."""
+    if used_paths is None:
+        used_paths = set()
+
+    normalized_rel = rel_path.replace('/', os.sep).replace('\\', os.sep)
+    rel_dir, original_name = os.path.split(normalized_rel)
+    candidate_name = _ensure_dicom_filename(original_name)
+    candidate_rel = os.path.join(rel_dir, candidate_name) if rel_dir else candidate_name
+    normalized_candidate = os.path.normpath(candidate_rel)
+
+    base_name = _extract_base_filename(original_name)
+    suffix = 1
+    while normalized_candidate in used_paths:
+        alt_name = _ensure_dicom_filename(f"{base_name}-{suffix}")
+        candidate_rel = os.path.join(rel_dir, alt_name) if rel_dir else alt_name
+        normalized_candidate = os.path.normpath(candidate_rel)
+        suffix += 1
+
+    used_paths.add(normalized_candidate)
+    return normalized_candidate
+
+
 def _register_session_dicom_paths(session_id: str, new_paths: Optional[List[str]] = None) -> int:
     """Track DICOM file paths for a session and return the updated count."""
     if new_paths is None:
@@ -1367,14 +1406,16 @@ def anonymize_files():
         # Find all DICOM files and anonymize them while preserving structure
         anonymized_files = []
         file_structure = {}  # Track original structure for reporting
-        
+        used_output_rel_paths: Set[str] = set()
+
         for root, dirs, files in os.walk(input_dir):
             for file in files:
                 input_file = os.path.join(root, file)
                 if is_dicom_file(input_file):
                     # Preserve the relative path structure in output
                     rel_path = os.path.relpath(input_file, input_dir)
-                    output_file = os.path.join(output_session_dir, rel_path)
+                    dicom_rel_path = _compute_unique_dicom_rel_path(rel_path, used_output_rel_paths)
+                    output_file = os.path.join(output_session_dir, dicom_rel_path)
                     
                     # Ensure output directory exists
                     output_dir = os.path.dirname(output_file)
@@ -1382,10 +1423,10 @@ def anonymize_files():
                         return jsonify({'error': f'Failed to create output subdirectory: {output_dir}'}), 500
                     
                     # Track the directory structure
-                    dir_key = os.path.dirname(rel_path) if os.path.dirname(rel_path) else 'root'
+                    dir_key = os.path.dirname(dicom_rel_path) if os.path.dirname(dicom_rel_path) else 'root'
                     if dir_key not in file_structure:
                         file_structure[dir_key] = []
-                    file_structure[dir_key].append(file)
+                    file_structure[dir_key].append(os.path.basename(dicom_rel_path))
                     
                     # Anonymize the file
                     if anonymization_mode == 'minimal':
@@ -1409,7 +1450,7 @@ def anonymize_files():
                     
                     anonymized_files.append({
                         'original': file,
-                        'anonymized': rel_path,
+                        'anonymized': dicom_rel_path,
                         'directory': dir_key
                     })
         
@@ -1457,11 +1498,8 @@ def download_anonymized(session_id):
         elif len(all_files) == 1:
             # Single file - serve directly without zipping
             single_file = all_files[0]
-            original_filename = os.path.basename(single_file)
-            # Add suffix to indicate it's anonymized
-            name_parts = os.path.splitext(original_filename)
-            download_filename = f"{name_parts[0]}_anonymized{name_parts[1]}" if name_parts[1] else f"{original_filename}_anonymized"
-            
+            download_filename = os.path.basename(single_file)
+
             return send_file(
                 single_file,
                 as_attachment=True,

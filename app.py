@@ -27,6 +27,7 @@ from pydicom import dcmread
 from pydicom.errors import InvalidDicomError
 import json
 import traceback
+from urllib.parse import quote
 from functools import wraps
 from dotenv import load_dotenv
 from pathlib import Path
@@ -58,6 +59,12 @@ elif len(_secret_key) < 32:
 
 app.config['SECRET_KEY'] = _secret_key
 app.config['MAX_CONTENT_LENGTH'] = 3 * 1024 * 1024 * 1024  # 3GB max file size
+
+# Session cookie security hardening
+app.config['SESSION_COOKIE_HTTPONLY'] = True      # Prevent JavaScript access to session cookie
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'     # CSRF protection while allowing SSO redirects
+if os.getenv('FLASK_ENV', 'development').lower() == 'production':
+    app.config['SESSION_COOKIE_SECURE'] = True     # Only send cookie over HTTPS in production
 
 # Configure proxy support for proper HTTPS detection behind reverse proxies
 # This enables the app to trust X-Forwarded-* headers from nginx
@@ -909,7 +916,9 @@ def auth_callback():
     if 'error' in result:
         error_desc = result.get('error_description', result.get('error', 'Unknown error'))
         security_logger.error("Azure AD authentication error: %s", error_desc)
-        flash(f'Authentication failed: {error_desc}', 'danger')
+        # Sanitize error description to prevent reflected content in flash messages
+        safe_error = str(error_desc)[:200].replace('<', '&lt;').replace('>', '&gt;')
+        flash(f'Authentication failed: {safe_error}', 'danger')
         return redirect(secure_url_for('index'))
 
     # Authentication succeeded — set up the session
@@ -936,9 +945,11 @@ def auth_callback():
     return redirect(secure_url_for('index'))
 
 
-@app.route('/logout', methods=['POST', 'GET'])
+@app.route('/logout', methods=['POST'])
 def logout():
-    """User logout endpoint with session cleanup and Azure AD sign-out."""
+    """User logout endpoint with session cleanup and Azure AD sign-out.
+    POST-only to prevent CSRF via GET requests (e.g. <img src='/logout'>).
+    """
     user_sessions = session.get('user_sessions', [])
 
     for tracked_session in user_sessions:
@@ -968,7 +979,7 @@ def logout():
             post_logout_redirect = post_logout_redirect.replace('http://', f'{forwarded_proto}://', 1)
         azure_logout_url = (
             f"{AZURE_AUTHORITY}/oauth2/v2.0/logout"
-            f"?post_logout_redirect_uri={post_logout_redirect}"
+            f"?post_logout_redirect_uri={quote(post_logout_redirect, safe='')}"
         )
         return redirect(azure_logout_url)
 
@@ -1499,8 +1510,6 @@ def status():
         return jsonify({
             'active_sessions': len(active_sessions),
             'sessions': active_sessions,
-            'upload_folder': app.config['UPLOAD_FOLDER'],
-            'output_folder': app.config['OUTPUT_FOLDER']
         })
     except Exception as e:
         return jsonify({'error': f'Status check failed: {str(e)}'}), 500
@@ -1513,16 +1522,12 @@ def debug_session():
         return jsonify({'error': 'Debug endpoint disabled in production'}), 404
     
     return jsonify({
-        'session_data': dict(session),
         'authenticated': session.get('authenticated'),
         'login_time': session.get('login_time'),
         'current_time': time.time(),
         'session_permanent': session.permanent,
         'secret_key_set': bool(app.config.get('SECRET_KEY')),
-        'secret_key_preview': app.config.get('SECRET_KEY', '')[:10] + '...' if app.config.get('SECRET_KEY') else 'NOT SET',
         'azure_sso_configured': bool(AZURE_CLIENT_ID and AZURE_TENANT_ID),
-        'request_headers': dict(request.headers),
-        'remote_addr': request.remote_addr
     })
 
 

@@ -960,8 +960,12 @@
                 logoutButton.disabled = true;
 
                 try {
-                    // Navigate to /logout which will clear the session and redirect to Azure AD logout
-                    window.location.href = '/logout';
+                    // POST to /logout to clear the session, then follow the redirect to Azure AD logout
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = '/logout';
+                    document.body.appendChild(form);
+                    form.submit();
                 } catch (error) {
                     logoutButton.disabled = false;
                 }

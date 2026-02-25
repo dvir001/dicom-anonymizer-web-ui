@@ -30,6 +30,7 @@ import traceback
 from functools import wraps
 from dotenv import load_dotenv
 from pathlib import Path
+import msal
 
 # Load environment variables
 load_dotenv()
@@ -77,20 +78,51 @@ if _allowed_origins:
 FLASK_ENV = os.getenv('FLASK_ENV', 'development')
 IS_PRODUCTION = FLASK_ENV.lower() == 'production'
 
-# Security and session configuration
-ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD')
-if not ADMIN_PASSWORD:
+# Azure AD / Entra ID SSO configuration
+AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '')
+AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
+AZURE_TENANT_ID = os.getenv('AZURE_TENANT_ID', '')
+AZURE_AUTHORITY = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}" if AZURE_TENANT_ID else ''
+AZURE_REDIRECT_PATH = os.getenv('AZURE_REDIRECT_PATH', '/auth/callback')
+AZURE_SCOPES = ['User.Read']  # Basic profile info
+
+if not AZURE_CLIENT_ID or not AZURE_TENANT_ID:
     if IS_PRODUCTION:
-        raise RuntimeError('ADMIN_PASSWORD must be set in production environments')
-    ADMIN_PASSWORD = 'admin123'
-    security_logger.warning('ADMIN_PASSWORD not set; using development fallback password')
-elif ADMIN_PASSWORD == 'admin123':
-    security_logger.warning('ADMIN_PASSWORD uses insecure default value; update ADMIN_PASSWORD for better security')
+        raise RuntimeError(
+            'AZURE_CLIENT_ID and AZURE_TENANT_ID must be set in production environments. '
+            'Register an App in Entra ID and configure the environment variables.'
+        )
+    security_logger.warning(
+        'Azure AD SSO not fully configured (AZURE_CLIENT_ID / AZURE_TENANT_ID missing). '
+        'Authentication will not work until these are set.'
+    )
+
 SESSION_TIMEOUT_MINUTES = int(os.getenv('SESSION_TIMEOUT_MINUTES', '60'))
+
+
+def _build_msal_app(cache=None):
+    """Build a confidential MSAL client application."""
+    return msal.ConfidentialClientApplication(
+        AZURE_CLIENT_ID,
+        authority=AZURE_AUTHORITY,
+        client_credential=AZURE_CLIENT_SECRET or None,
+        token_cache=cache,
+    )
+
+
+def _build_auth_code_flow(scopes=None, redirect_uri=None):
+    """Initiate an authorization code flow and return the flow dict."""
+    return _build_msal_app().initiate_auth_code_flow(
+        scopes or AZURE_SCOPES,
+        redirect_uri=redirect_uri,
+    )
+
 
 # Application startup logging
 logger.info("DICOM Anonymizer - Environment: %s", FLASK_ENV)
-logger.info("Authentication enabled - Session timeout: %s minutes", SESSION_TIMEOUT_MINUTES)
+logger.info("Authentication: Azure AD SSO (Entra ID) - Session timeout: %s minutes", SESSION_TIMEOUT_MINUTES)
+if AZURE_CLIENT_ID:
+    logger.info("Azure AD Client ID: %s...", AZURE_CLIENT_ID[:8])
 
 
 # Directory setup for file operations
@@ -306,125 +338,6 @@ def secure_url_for(endpoint, **values):
     else:
         # Fallback to default behavior (useful for local development)
         return url_for(endpoint, **values)
-
-
-# Brute force protection - tracks failed login attempts by client fingerprint
-login_attempts_global = {}
-
-# Brute force protection configuration  
-MAX_LOGIN_ATTEMPTS = int(os.getenv('MAX_LOGIN_ATTEMPTS', '5'))
-LOGIN_LOCKOUT_DURATION = int(os.getenv('LOGIN_LOCKOUT_DURATION', '300'))  # 5 minutes default
-EXPONENTIAL_BACKOFF_BASE = int(os.getenv('EXPONENTIAL_BACKOFF_BASE', '2'))  # seconds
-
-
-def get_client_fingerprint(request):
-    """
-    Generate a client fingerprint using user agent and other headers.
-    This provides basic client identification without relying on IP addresses.
-    """
-    user_agent = request.headers.get('User-Agent', '')
-    accept_language = request.headers.get('Accept-Language', '')
-    accept_encoding = request.headers.get('Accept-Encoding', '')
-    
-    # Create a fingerprint from headers
-    fingerprint_data = f"{user_agent}|{accept_language}|{accept_encoding}"
-    fingerprint_hash = hashlib.sha256(fingerprint_data.encode('utf-8')).hexdigest()[:16]
-    
-    return fingerprint_hash
-
-
-def is_client_locked_out(client_fingerprint):
-    """
-    Check if a client is currently locked out due to too many failed attempts.
-    Returns (is_locked_out, remaining_lockout_seconds)
-    """
-    if client_fingerprint not in login_attempts_global:
-        return False, 0
-    
-    attempts, lockout_start_time = login_attempts_global[client_fingerprint]
-    
-    # If haven't reached max attempts yet, not locked out
-    if attempts < MAX_LOGIN_ATTEMPTS:
-        return False, 0
-    
-    # Check if lockout duration has passed
-    current_time = time.time()
-    time_since_lockout = current_time - lockout_start_time
-    
-    if time_since_lockout < LOGIN_LOCKOUT_DURATION:
-        remaining_lockout = LOGIN_LOCKOUT_DURATION - time_since_lockout
-        return True, remaining_lockout
-    else:
-        # Lockout duration has passed, reset attempts
-        del login_attempts_global[client_fingerprint]
-        return False, 0
-
-
-def record_failed_login_attempt(client_fingerprint):
-    """
-    Record a failed login attempt for the client fingerprint.
-    Returns (current_attempts, is_now_locked_out)
-    """
-    current_time = time.time()
-    
-    if client_fingerprint not in login_attempts_global:
-        # First failed attempt
-        login_attempts_global[client_fingerprint] = (1, current_time)
-        security_logger.warning(
-            "First failed login attempt for fingerprint %s",
-            client_fingerprint[:8]
-        )
-        return 1, False
-    else:
-        attempts, first_attempt_time = login_attempts_global[client_fingerprint]
-        
-        # Increment attempt count but keep original timestamp for proper lockout tracking
-        new_attempts = attempts + 1
-        login_attempts_global[client_fingerprint] = (new_attempts, first_attempt_time)
-        
-        # Check if this triggers a lockout
-        is_locked_out = new_attempts >= MAX_LOGIN_ATTEMPTS
-        
-        security_logger.warning(
-            "Failed login attempt #%s for fingerprint %s",
-            new_attempts,
-            client_fingerprint[:8]
-        )
-        if is_locked_out:
-            security_logger.error(
-                "Client fingerprint %s locked out after %s attempts",
-                client_fingerprint[:8],
-                new_attempts
-            )
-        
-        return new_attempts, is_locked_out
-
-
-def clear_failed_login_attempts(client_fingerprint):
-    """
-    Clear failed login attempts for a client fingerprint after successful login.
-    """
-    if client_fingerprint in login_attempts_global:
-        attempts, _ = login_attempts_global[client_fingerprint]
-        del login_attempts_global[client_fingerprint]
-        security_logger.info(
-            "Cleared %s failed login attempts for fingerprint %s",
-            attempts,
-            client_fingerprint[:8]
-        )
-
-
-def calculate_backoff_delay(attempts):
-    """
-    Calculate exponential backoff delay based on number of attempts.
-    """
-    # Cap the backoff to prevent extremely long delays
-    max_attempts_for_backoff = 6
-    capped_attempts = min(attempts, max_attempts_for_backoff)
-    
-    # Exponential backoff: 2^attempts seconds, capped at 32 seconds
-    delay = min(EXPONENTIAL_BACKOFF_BASE ** capped_attempts, 32)
-    return delay
 
 
 def _request_wants_json() -> bool:
@@ -906,6 +819,7 @@ def index():
         session.clear()
 
     existing_sessions: list[dict] = []
+    user_display_name = session.get('user_name', '')
 
     if is_authenticated:
         user_sessions = session.get('user_sessions', [])
@@ -930,125 +844,101 @@ def index():
         is_authenticated=is_authenticated,
         session_timeout_minutes=SESSION_TIMEOUT_MINUTES,
         session_remaining_seconds=remaining_seconds,
-        login_lockout_duration=LOGIN_LOCKOUT_DURATION,
-        max_login_attempts=MAX_LOGIN_ATTEMPTS,
-        existing_sessions=existing_sessions
+        existing_sessions=existing_sessions,
+        user_display_name=user_display_name,
+        azure_configured=bool(AZURE_CLIENT_ID and AZURE_TENANT_ID)
     )
 
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route('/login')
 def login():
-    """Authentication endpoint with brute force protection and JSON support."""
-    if request.method == 'GET':
-        is_authenticated, _, _ = _current_session_state()
-
+    """Initiate Azure AD SSO login by redirecting to Microsoft login page."""
+    if not AZURE_CLIENT_ID or not AZURE_TENANT_ID:
         if _request_wants_json():
-            return jsonify({'authenticated': is_authenticated}), 200
-
+            return jsonify({'error': 'Azure AD SSO is not configured. Set AZURE_CLIENT_ID and AZURE_TENANT_ID.'}), 503
+        flash('Azure AD SSO is not configured. Contact your administrator.', 'danger')
         return redirect(secure_url_for('index'))
 
-    payload = request.get_json(silent=True) or request.form
-    password = (payload.get('password') or '').strip()
+    # Build the redirect URI for the OAuth callback
+    redirect_uri = request.url_root.rstrip('/') + AZURE_REDIRECT_PATH
+    # Respect X-Forwarded-Proto for HTTPS behind a reverse proxy
+    forwarded_proto = request.headers.get('X-Forwarded-Proto')
+    if forwarded_proto:
+        redirect_uri = redirect_uri.replace('http://', f'{forwarded_proto}://', 1)
 
-    client_fingerprint = get_client_fingerprint(request)
-
-    if session.get('authenticated'):
-        security_logger.info(
-            "Login attempt while already authenticated for fingerprint %s",
-            client_fingerprint[:8]
-        )
+    try:
+        flow = _build_auth_code_flow(redirect_uri=redirect_uri)
+    except Exception:
+        logger.exception("Failed to initiate Azure AD auth code flow")
         if _request_wants_json():
-            return jsonify({'success': True, 'already_authenticated': True}), 200
-        return redirect(request.args.get('next') or secure_url_for('index'))
-
-    is_locked_out, remaining_lockout = is_client_locked_out(client_fingerprint)
-    if is_locked_out:
-        minutes, seconds = divmod(int(max(remaining_lockout, 0)), 60)
-        message = (
-            f'Too many failed login attempts. Try again in {int(minutes)} minute(s) '
-            f'and {int(seconds)} second(s).'
-        )
-        security_logger.error(
-            "Login attempt blocked for fingerprint %s; locked out for %ss",
-            client_fingerprint[:8],
-            int(remaining_lockout)
-        )
-        if _request_wants_json():
-            return jsonify({
-                'success': False,
-                'error': message,
-                'locked_out': True,
-                'retry_after': int(remaining_lockout)
-            }), 403
-
-        flash(message, 'danger')
+            return jsonify({'error': 'Failed to start Azure AD login. Check server configuration.'}), 500
+        flash('Failed to start Azure AD login. Contact your administrator.', 'danger')
         return redirect(secure_url_for('index'))
 
-    if password == ADMIN_PASSWORD:
-        clear_failed_login_attempts(client_fingerprint)
+    # Store the flow in session so we can complete it in the callback
+    session['auth_flow'] = flow
+    auth_uri = flow.get('auth_uri')
+    if not auth_uri:
+        logger.error("MSAL auth flow did not return an auth_uri")
+        flash('Azure AD login configuration error. Contact your administrator.', 'danger')
+        return redirect(secure_url_for('index'))
 
-        session.clear()
-        session['authenticated'] = True
-        session['login_time'] = time.time()
-        session.permanent = True
-        app.permanent_session_lifetime = datetime.timedelta(minutes=SESSION_TIMEOUT_MINUTES)
+    security_logger.info("Redirecting user to Azure AD login")
+    return redirect(auth_uri)
 
-        security_logger.info(
-            "Successful authentication for fingerprint %s",
-            client_fingerprint[:8]
+
+@app.route('/auth/callback')
+def auth_callback():
+    """Handle the OAuth2 redirect callback from Azure AD."""
+    flow = session.pop('auth_flow', None)
+    if not flow:
+        security_logger.warning("Auth callback received without a pending auth flow")
+        flash('Authentication flow expired. Please try again.', 'warning')
+        return redirect(secure_url_for('index'))
+
+    try:
+        result = _build_msal_app().acquire_token_by_auth_code_flow(
+            flow,
+            request.args,
         )
+    except Exception:
+        logger.exception("Error acquiring token from Azure AD")
+        flash('Authentication failed. Please try again.', 'danger')
+        return redirect(secure_url_for('index'))
 
-        if _request_wants_json():
-            return jsonify({'success': True}), 200
+    if 'error' in result:
+        error_desc = result.get('error_description', result.get('error', 'Unknown error'))
+        security_logger.error("Azure AD authentication error: %s", error_desc)
+        flash(f'Authentication failed: {error_desc}', 'danger')
+        return redirect(secure_url_for('index'))
 
-        flash('Login successful!', 'success')
-        return redirect(request.args.get('next') or secure_url_for('index'))
+    # Authentication succeeded — set up the session
+    id_token_claims = result.get('id_token_claims', {})
+    user_name = id_token_claims.get('name', id_token_claims.get('preferred_username', 'User'))
+    user_email = id_token_claims.get('preferred_username', '')
+    user_oid = id_token_claims.get('oid', '')
 
-    attempts, is_now_locked_out = record_failed_login_attempt(client_fingerprint)
+    session['authenticated'] = True
+    session['login_time'] = time.time()
+    session['user_name'] = user_name
+    session['user_email'] = user_email
+    session['user_oid'] = user_oid
+    session.permanent = True
+    app.permanent_session_lifetime = datetime.timedelta(minutes=SESSION_TIMEOUT_MINUTES)
 
-    backoff_delay = calculate_backoff_delay(attempts)
-    security_logger.warning(
-        "Applying %ss backoff for fingerprint %s (attempt #%s)",
-        backoff_delay,
-        client_fingerprint[:8],
-        attempts
+    security_logger.info(
+        "Successful Azure AD authentication for user %s (%s)",
+        user_name,
+        user_email
     )
-    time.sleep(backoff_delay)
 
-    if is_now_locked_out:
-        message = (
-            f'Too many failed login attempts. Access temporarily restricted for '
-            f'{LOGIN_LOCKOUT_DURATION // 60} minutes.'
-        )
-        if _request_wants_json():
-            return jsonify({
-                'success': False,
-                'error': message,
-                'locked_out': True,
-                'retry_after': LOGIN_LOCKOUT_DURATION
-            }), 403
-
-        flash(message, 'danger')
-        return redirect(secure_url_for('index'))
-
-    remaining_attempts = max(MAX_LOGIN_ATTEMPTS - attempts, 0)
-    message = f'Invalid password. {remaining_attempts} attempt(s) remaining.'
-
-    if _request_wants_json():
-        return jsonify({
-            'success': False,
-            'error': message,
-            'locked_out': False,
-            'attempts_remaining': remaining_attempts
-        }), 401
-
-    flash(message, 'danger')
+    flash(f'Welcome, {user_name}!', 'success')
     return redirect(secure_url_for('index'))
 
 
 @app.route('/logout', methods=['POST', 'GET'])
 def logout():
-    """User logout endpoint with session cleanup."""
+    """User logout endpoint with session cleanup and Azure AD sign-out."""
     user_sessions = session.get('user_sessions', [])
 
     for tracked_session in user_sessions:
@@ -1070,6 +960,18 @@ def logout():
     if _request_wants_json():
         return jsonify({'success': True}), 200
 
+    # Redirect to Azure AD logout to end the SSO session as well
+    if AZURE_AUTHORITY:
+        post_logout_redirect = request.url_root.rstrip('/')
+        forwarded_proto = request.headers.get('X-Forwarded-Proto')
+        if forwarded_proto:
+            post_logout_redirect = post_logout_redirect.replace('http://', f'{forwarded_proto}://', 1)
+        azure_logout_url = (
+            f"{AZURE_AUTHORITY}/oauth2/v2.0/logout"
+            f"?post_logout_redirect_uri={post_logout_redirect}"
+        )
+        return redirect(azure_logout_url)
+
     flash('You have been logged out.', 'info')
     return redirect(secure_url_for('index'))
 
@@ -1088,7 +990,7 @@ def upload_files():
     if not files or files[0].filename == '':
         return jsonify({'error': 'No files selected'}), 400
 
-    client_fingerprint = get_client_fingerprint(request)
+    client_fingerprint = session.get('user_oid') or session.get('user_email') or 'anonymous'
 
     total_upload_size = 0
     for storage_file in files:
@@ -1618,43 +1520,9 @@ def debug_session():
         'session_permanent': session.permanent,
         'secret_key_set': bool(app.config.get('SECRET_KEY')),
         'secret_key_preview': app.config.get('SECRET_KEY', '')[:10] + '...' if app.config.get('SECRET_KEY') else 'NOT SET',
-    'admin_password_set': bool(ADMIN_PASSWORD),
+        'azure_sso_configured': bool(AZURE_CLIENT_ID and AZURE_TENANT_ID),
         'request_headers': dict(request.headers),
         'remote_addr': request.remote_addr
-    })
-
-
-@app.route('/debug-login-attempts')
-def debug_login_attempts():
-    """Debug route to check login attempt state (development only)."""
-    if IS_PRODUCTION:
-        return jsonify({'error': 'Debug endpoint disabled in production'}), 404
-    
-    current_time = time.time()
-    attempts_debug = {}
-    
-    for fingerprint, (attempts, first_time) in login_attempts_global.items():
-        age_seconds = current_time - first_time
-        locked_out, remaining = is_client_locked_out(fingerprint)
-        
-        attempts_debug[fingerprint[:8] + "..."] = {
-            'attempts': attempts,
-            'first_attempt_ago_seconds': round(age_seconds, 1),
-            'is_locked_out': locked_out,
-            'remaining_lockout_seconds': round(remaining, 1) if locked_out else 0,
-            'max_attempts': MAX_LOGIN_ATTEMPTS,
-            'lockout_duration': LOGIN_LOCKOUT_DURATION
-        }
-    
-    current_fingerprint = get_client_fingerprint(request)
-    
-    return jsonify({
-        'current_fingerprint': current_fingerprint[:8] + "...",
-        'max_attempts': MAX_LOGIN_ATTEMPTS,
-        'lockout_duration': LOGIN_LOCKOUT_DURATION,
-        'active_login_attempts': attempts_debug,
-        'total_tracked_clients': len(login_attempts_global),
-        'note': 'This debug endpoint helps diagnose brute force protection issues'
     })
 
 
@@ -1669,7 +1537,7 @@ if __name__ == '__main__':
     logger.info("Upload folder: %s", UPLOAD_FOLDER)
     logger.info("Output folder: %s", OUTPUT_FOLDER)
     logger.info("Environment: %s", FLASK_ENV)
-    logger.info("Features enabled: content-based validation, zip extraction, cleanup, minimal anonymization, health checks, session auth")
+    logger.info("Features enabled: content-based validation, zip extraction, cleanup, minimal anonymization, health checks, Azure AD SSO")
 
     if IS_PRODUCTION:
         logger.info("Running in PRODUCTION mode")

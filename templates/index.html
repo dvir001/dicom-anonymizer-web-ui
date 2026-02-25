@@ -88,38 +88,37 @@
             gap: 12px;
         }
 
-        .login-modal input[type="password"] {
-            padding: 12px 14px;
-            border-radius: 8px;
-            border: 1px solid #cbd5e0;
-            font-size: 16px;
-        }
-
-        .login-modal input[type="password"]:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.25);
-        }
-
-        .login-modal button {
-            padding: 12px 16px;
+        .login-modal .ms-login-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 14px 20px;
             border-radius: 8px;
             border: none;
             cursor: pointer;
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, #0078d4, #004578);
             color: #ffffff;
             font-weight: 600;
+            font-size: 16px;
             transition: transform 0.2s ease, box-shadow 0.2s ease;
+            text-decoration: none;
         }
 
-        .login-modal button:hover:not(:disabled) {
+        .login-modal .ms-login-btn:hover {
             transform: translateY(-1px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.35);
+            box-shadow: 0 10px 20px rgba(0, 120, 212, 0.35);
         }
 
-        .login-modal button:disabled {
+        .login-modal .ms-login-btn:disabled {
             opacity: 0.6;
             cursor: not-allowed;
+        }
+
+        .login-modal .ms-login-btn svg {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
         }
 
         .login-error {
@@ -668,18 +667,27 @@
     <div id="loginOverlay" class="login-overlay{% if is_authenticated %} hidden{% endif %}">
         <div class="login-modal">
             <h2>🔐 Secure Access Required</h2>
-            <p>Enter the administrator password to manage anonymization tasks.</p>
-            <form id="loginForm">
-                <input type="password" id="loginPassword" name="password" placeholder="Admin password" autocomplete="current-password" required>
-                <button type="submit" id="loginButton">Unlock</button>
-            </form>
+            <p>Sign in with your Microsoft account to manage anonymization tasks.</p>
+            {% if azure_configured %}
+            <a href="/login" class="ms-login-btn" id="loginButton">
+                <svg viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+                    <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                    <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                    <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+                </svg>
+                Sign in with Microsoft
+            </a>
+            {% else %}
+            <div class="login-error">Azure AD SSO is not configured. Contact your administrator to set up AZURE_CLIENT_ID and AZURE_TENANT_ID.</div>
+            {% endif %}
             <div id="loginError" class="login-error hidden"></div>
         </div>
     </div>
 
     <div id="appContainer" class="container{% if not is_authenticated %} locked{% endif %}">
         <div class="top-bar">
-            <span id="sessionStatus" class="session-status{% if not is_authenticated %} hidden{% endif %}">🔓 Session active</span>
+            <span id="sessionStatus" class="session-status{% if not is_authenticated %} hidden{% endif %}">🔓 {% if user_display_name %}{{ user_display_name }}{% else %}Session active{% endif %}</span>
             <button id="logoutButton" type="button" class="btn secondary{% if not is_authenticated %} hidden{% endif %}">🚪 Logout</button>
         </div>
         <h1>🏥 DICOM Anonymizer - Batch Processing</h1>
@@ -804,9 +812,9 @@
             'authenticated': is_authenticated,
             'sessionTimeoutMinutes': session_timeout_minutes,
             'sessionRemainingSeconds': session_remaining_seconds,
-            'loginLockoutSeconds': login_lockout_duration,
-            'maxLoginAttempts': max_login_attempts,
-            'existingSessions': existing_sessions
+            'existingSessions': existing_sessions,
+            'userDisplayName': user_display_name,
+            'azureConfigured': azure_configured
         } | tojson }}
     </script>
 
@@ -816,8 +824,6 @@
 
         const loginOverlay = document.getElementById('loginOverlay');
         const appContainer = document.getElementById('appContainer');
-        const loginForm = document.getElementById('loginForm');
-        const loginPasswordInput = document.getElementById('loginPassword');
         const loginButton = document.getElementById('loginButton');
         const loginError = document.getElementById('loginError');
         const logoutButton = document.getElementById('logoutButton');
@@ -882,17 +888,11 @@
             }
 
             if (loginButton) {
-                loginButton.disabled = false;
-                loginButton.textContent = 'Unlock';
+                loginButton.style.pointerEvents = 'auto';
             }
 
             if (logoutButton) {
                 logoutButton.disabled = false;
-            }
-
-            if (loginPasswordInput) {
-                loginPasswordInput.value = '';
-                loginPasswordInput.focus();
             }
 
             appConfig.authenticated = false;
@@ -953,68 +953,15 @@
             updateSessionUI(true);
         }
 
-        if (loginForm) {
-            loginForm.addEventListener('submit', async (event) => {
-                event.preventDefault();
-
-                if (!loginPasswordInput) {
-                    return;
-                }
-
-                const password = loginPasswordInput.value.trim();
-                if (!password) {
-                    lockInterface('Password is required.');
-                    return;
-                }
-
-                loginButton.disabled = true;
-                loginButton.textContent = 'Unlocking...';
-
-                try {
-                    const response = await fetch('/login', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        },
-                        body: JSON.stringify({ password })
-                    });
-
-                    const result = await response.json().catch(() => ({}));
-
-                    if (response.ok && result && result.success) {
-                        unlockInterface();
-                        loginPasswordInput.value = '';
-                    } else {
-                        const message = (result && result.error) || 'Login failed. Please try again.';
-                        lockInterface(message);
-                    }
-                } catch (error) {
-                    lockInterface(`Unable to login: ${error.message}`);
-                } finally {
-                    loginButton.disabled = false;
-                    loginButton.textContent = 'Unlock';
-                }
-            });
-        }
+        // Azure SSO login is handled via server redirect — no form handler needed
 
         if (logoutButton) {
             logoutButton.addEventListener('click', async () => {
                 logoutButton.disabled = true;
 
                 try {
-                    const response = await fetch('/logout', {
-                        method: 'POST',
-                        headers: {
-                            'Accept': 'application/json'
-                        }
-                    });
-
-                    if (response.ok) {
-                        lockInterface('You have been logged out. Please login to continue.');
-                    } else {
-                        logoutButton.disabled = false;
-                    }
+                    // Navigate to /logout which will clear the session and redirect to Azure AD logout
+                    window.location.href = '/logout';
                 } catch (error) {
                     logoutButton.disabled = false;
                 }

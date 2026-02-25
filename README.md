@@ -13,7 +13,7 @@ The anonymization follows the DICOM standard. More information about dicom field
 ### 🌐 New Web Application Features
 - **Web Interface**: Modern, responsive web UI for DICOM anonymization
 - **Batch Processing**: Upload and process multiple files with organized batch management
-- **Authentication**: Secure login system with brute force protection
+- **Authentication**: Azure AD (Entra ID) Single Sign-On via Microsoft
 - **Docker Ready**: Complete containerization with production deployment support
 - **Real-time Processing**: Live progress updates and status monitoring
 
@@ -23,7 +23,7 @@ The anonymization follows the DICOM standard. More information about dicom field
 ```bash
 git clone https://github.com/dvir001/dicom-anonymizer.git
 cd dicom-anonymizer
-cp .env.example .env  # Edit with your settings
+cp .env.example .env  # Configure Azure AD credentials
 docker-compose up -d
 ```
 
@@ -72,7 +72,7 @@ cd dicom-anonymizer
 
 # Copy environment configuration
 cp .env.example .env
-# Edit .env to set your password and configuration
+# Edit .env to set your Azure AD credentials (see Azure AD Setup section)
 
 # Run with Docker Compose
 docker-compose up -d
@@ -158,7 +158,7 @@ To contribute to this fork or set up a development environment:
 4. **Configure Environment**:
    ```bash
    cp .env.example .env
-   # Edit .env with your development settings
+   # Edit .env with your Azure AD credentials (see Azure AD Setup below)
    ```
 
 5. **Run Development Server**:
@@ -457,8 +457,7 @@ This fork adds significant web-based functionality to the original command-line 
 - **Real-time Processing**: Live updates during anonymization with detailed progress information
 
 ### 🔐 Security Features
-- **Authentication System**: Login page with password protection for secure access
-- **Brute Force Protection**: Advanced security with IP-based lockout and exponential backoff mechanisms
+- **Azure AD SSO**: Microsoft Entra ID (Azure AD) Single Sign-On — users sign in with their organizational Microsoft account
 - **Session Management**: Secure session handling with automatic cleanup and timeout protection
 - **Environment Configuration**: `.env` file support for secure credential and configuration management
 
@@ -486,3 +485,43 @@ This fork adds significant web-based functionality to the original command-line 
 - **Error Handling**: Comprehensive error reporting and user-friendly error messages
 
 The web application maintains full compatibility with the original command-line functionality while providing a modern, secure, and user-friendly interface for DICOM anonymization workflows.
+
+## Azure AD (Entra ID) Setup
+
+The web application uses Microsoft Entra ID (Azure AD) for authentication. Follow these steps to configure it:
+
+### 1. Register an App in Entra ID
+
+1. Go to the [Entra ID portal](https://entra.microsoft.com/)
+2. Navigate to **App registrations** → **New registration**
+3. Enter a name (e.g., "DICOM Anonymizer")
+4. Under **Supported account types**, choose the appropriate option for your organization
+5. Set the **Redirect URI** (Web platform) to: `https://your-domain/auth/callback`
+   - For local development: `http://localhost:5000/auth/callback`
+6. Click **Register**
+
+### 2. Create a Client Secret
+
+1. In your app registration, go to **Certificates & secrets**
+2. Click **New client secret**, add a description, and choose an expiry
+3. Copy the secret **Value** immediately (it won't be shown again)
+
+### 3. Configure API Permissions
+
+1. Go to **API permissions** → **Add a permission**
+2. Select **Microsoft Graph** → **Delegated permissions**
+3. Add: `User.Read`
+4. Click **Grant admin consent** for your organization
+
+### 4. Set Environment Variables
+
+Add the following to your `.env` file:
+
+```dotenv
+AZURE_CLIENT_ID=your-application-client-id
+AZURE_TENANT_ID=your-directory-tenant-id
+AZURE_CLIENT_SECRET=your-client-secret-value
+AZURE_REDIRECT_PATH=/auth/callback
+```
+
+You can find the **Client ID** and **Tenant ID** on the app registration's **Overview** page in the Entra ID portal.

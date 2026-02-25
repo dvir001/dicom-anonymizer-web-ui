@@ -11,7 +11,11 @@ services:
     environment:
       - FLASK_ENV=${FLASK_ENV:-production}
       - FLASK_APP=${FLASK_APP:-app.py}
-      - APP_PASSWORD=${APP_PASSWORD:-secure_password_here}
+      # Azure AD / Entra ID SSO configuration
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID:-}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID:-}
+      - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET:-}
+      - AZURE_REDIRECT_PATH=${AZURE_REDIRECT_PATH:-/auth/callback}
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-fallback-secret-key}
       # Session configuration (authentication vs file storage timeouts)
       - SESSION_TIMEOUT_MINUTES=${SESSION_TIMEOUT_MINUTES:-60}
@@ -20,10 +24,6 @@ services:
       - MAX_SESSIONS_PER_USER=${MAX_SESSIONS_PER_USER:-3}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - ANONYMOUS_RATE_LIMIT=${ANONYMOUS_RATE_LIMIT:-10}
-      # Brute force protection configuration
-      - MAX_LOGIN_ATTEMPTS=${MAX_LOGIN_ATTEMPTS:-5}
-      - LOGIN_LOCKOUT_DURATION=${LOGIN_LOCKOUT_DURATION:-300}
-      - EXPONENTIAL_BACKOFF_BASE=${EXPONENTIAL_BACKOFF_BASE:-2}
       # Add additional Flask production settings
       - PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-1}
       - PYTHONDONTWRITEBYTECODE=${PYTHONDONTWRITEBYTECODE:-1}

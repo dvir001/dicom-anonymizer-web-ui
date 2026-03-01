@@ -45,6 +45,6 @@ setup(
     # https://packaging.python.org/en/latest/guides/distributing-packages-using-setuptools/
     install_requires=["pydicom", "tqdm"],  # Optional
     extras_require={
-        "dev": ["pytest", "bs4", "fire", "requests", "pre-commit", "ruff===0.15.1"]
+        "dev": ["pytest", "bs4", "fire", "requests", "pre-commit", "ruff===0.15.4"]
     },
 )

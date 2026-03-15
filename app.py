@@ -422,22 +422,31 @@ def is_dicom_file(filepath):
     if not filepath or not os.path.exists(filepath) or not os.path.isfile(filepath):
         return False
 
+    # Quick pre-checks: bail out early for files that clearly aren't DICOM.
+    # These avoid running dcmread on obviously non-DICOM files, but are not
+    # sufficient on their own — a corrupted file can pass a preamble check yet
+    # be unparseable, so dcmread(force=False) is still required for confirmation.
+    looks_like_dicom = False
     try:
         if isDICOMType(filepath):
-            return True
+            looks_like_dicom = True
     except Exception:
         logger.debug("isDICOMType check failed for %s", filepath, exc_info=True)
 
-    try:
-        with open(filepath, 'rb') as stream:
-            preamble = stream.read(132)
-            if len(preamble) >= 132 and preamble[128:132] == b'DICM':
-                return True
-    except OSError:
+    if not looks_like_dicom:
+        try:
+            with open(filepath, 'rb') as stream:
+                preamble = stream.read(132)
+                if len(preamble) >= 132 and preamble[128:132] == b'DICM':
+                    looks_like_dicom = True
+        except OSError:
+            return False
+
+    if not looks_like_dicom:
         return False
 
-    # Attempt strict parsing without force — force=True is too permissive
-    # and causes false positives on arbitrary text/binary files.
+    # Confirm with strict parsing — force=False avoids false positives on
+    # arbitrary binary files that happen to carry the DICM magic bytes.
     try:
         dcmread(filepath, stop_before_pixels=True, force=False)
         return True

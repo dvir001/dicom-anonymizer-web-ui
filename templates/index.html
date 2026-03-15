@@ -951,6 +951,8 @@
         let activeTab = 'tab-1';
         let tabCounter = 1;
 
+        const ANONYMIZE_BTN_LABEL = '🔒 Anonymize';
+
         function updateSessionUI(isAuthenticated) {
             if (logoutButton) {
                 logoutButton.classList.toggle('hidden', !isAuthenticated);
@@ -1279,7 +1281,7 @@
             const anonymizeBtn = tabContent.querySelector(`#anonymizeBtn-${tabId}`);
             if (anonymizeBtn) {
                 anonymizeBtn.disabled = false;
-                anonymizeBtn.textContent = '🔒 Start Anonymization';
+                anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
             }
             
             // Clear file inputs
@@ -1733,7 +1735,7 @@
             if (uploadOutcome && uploadOutcome.unauthorized) {
                 if (anonymizeBtn) {
                     anonymizeBtn.disabled = false;
-                    anonymizeBtn.textContent = '🔒 Start Anonymization';
+                    anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
                 }
                 enableUploadForTab(tabId);
                 return;
@@ -2043,17 +2045,17 @@
                     showAnonymizationResults(result, tabId);
                     // Reset button state after success
                     anonymizeBtn.disabled = false;
-                    anonymizeBtn.textContent = '🔒 Start Anonymization';
+                    anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
                 } else {
                     showStatus(`❌ Anonymization failed: ${result.error}`, 'error', tabId);
                     anonymizeBtn.disabled = false;
-                    anonymizeBtn.textContent = '🔒 Start Anonymization';
+                    anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
                     enableUploadForTab(tabId);
                 }
             } catch (error) {
                 showStatus(`❌ Anonymization failed: ${error.message}`, 'error', tabId);
                 anonymizeBtn.disabled = false;
-                anonymizeBtn.textContent = '🔒 Start Anonymization';
+                anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
                 enableUploadForTab(tabId);
             }
         }
@@ -2139,7 +2141,7 @@
             const anonymizeBtn = document.getElementById(`anonymizeBtn-${tabId}`);
             if (anonymizeBtn) {
                 anonymizeBtn.disabled = false;
-                anonymizeBtn.textContent = '🔒 Start Anonymization';
+                anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
             }
             
             resetTabContent(tabContent, tabId);

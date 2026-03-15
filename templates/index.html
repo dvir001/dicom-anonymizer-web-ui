@@ -1846,16 +1846,19 @@
                     const fileStatus = file.is_dicom ? 'DICOM' : 'Not DICOM';
                     const fileIcon = file.is_dicom ? '🏥' : '📄';
 
-                    fileItem.innerHTML = `
-                        <span>${fileIcon} ${fileName}</span>
-                        <span class="badge ${file.is_dicom ? 'dicom' : 'non-dicom'}">${fileStatus}</span>
-                    `;
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = `${fileIcon} ${fileName}`;
+                    const badgeSpan = document.createElement('span');
+                    badgeSpan.className = `badge ${file.is_dicom ? 'dicom' : 'non-dicom'}`;
+                    badgeSpan.textContent = fileStatus;
+                    fileItem.appendChild(nameSpan);
+                    fileItem.appendChild(badgeSpan);
                     groupDiv.appendChild(fileItem);
 
                     if (file.is_dicom) {
                         const summaryItem = document.createElement('div');
                         summaryItem.style.padding = '2px 5px';
-                        summaryItem.innerHTML = `🏥 ${fileName}`;
+                        summaryItem.textContent = `🏥 ${fileName}`;
                         batchFilesList.appendChild(summaryItem);
                     }
                 });
@@ -1868,6 +1871,15 @@
             fileList.classList.remove('hidden');
         }
 
+        function toggleNonDicomNotice(btn, bodyId) {
+            const body = document.getElementById(bodyId);
+            if (!body) return;
+            body.classList.toggle('expanded');
+            const expanded = body.classList.contains('expanded');
+            btn.setAttribute('aria-expanded', expanded);
+            btn.textContent = expanded ? '▲ hide' : '▼ show';
+        }
+
         function showNonDicomNotice(tabId, count, fileNames) {
             // Remove any existing notice for this tab
             const existingNotice = document.getElementById(`nonDicomNotice-${tabId}`);
@@ -1875,33 +1887,67 @@
                 existingNotice.remove();
             }
 
-            const escapeHtml = (str) => {
-                const div = document.createElement('div');
-                div.textContent = str;
-                return div.innerHTML;
-            };
-
             const notice = document.createElement('div');
             notice.id = `nonDicomNotice-${tabId}`;
             notice.className = 'non-dicom-notice';
 
-            let fileListHtml = '';
+            const header = document.createElement('div');
+            header.className = 'notice-header';
+
+            const title = document.createElement('strong');
+            title.textContent = `⚠️ ${count} non-DICOM file${count > 1 ? 's' : ''} removed — only valid DICOM files are kept`;
+            header.appendChild(title);
+
+            const controls = document.createElement('span');
+
             if (fileNames.length > 0) {
                 const displayNames = fileNames.slice(0, 20);
-                const items = displayNames.map(name => `<li>${escapeHtml(name)}</li>`).join('');
-                const moreText = fileNames.length > 20 ? `<li><em>...and ${fileNames.length - 20} more</em></li>` : '';
-                fileListHtml = `<div class="notice-body" id="noticeBody-${tabId}"><ul class="notice-file-list">${items}${moreText}</ul></div>`;
+                const bodyId = `noticeBody-${tabId}`;
+
+                const noticeBody = document.createElement('div');
+                noticeBody.className = 'notice-body';
+                noticeBody.id = bodyId;
+
+                const ul = document.createElement('ul');
+                ul.className = 'notice-file-list';
+                displayNames.forEach(name => {
+                    const li = document.createElement('li');
+                    li.textContent = name;
+                    ul.appendChild(li);
+                });
+                if (count > displayNames.length) {
+                    const moreLi = document.createElement('li');
+                    const em = document.createElement('em');
+                    em.textContent = `...and ${count - displayNames.length} more`;
+                    moreLi.appendChild(em);
+                    ul.appendChild(moreLi);
+                }
+                noticeBody.appendChild(ul);
+
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'notice-toggle';
+                toggleBtn.setAttribute('aria-label', 'Toggle file list');
+                toggleBtn.setAttribute('aria-expanded', 'false');
+                toggleBtn.setAttribute('aria-controls', bodyId);
+                toggleBtn.title = 'Toggle file list';
+                toggleBtn.textContent = '▼ show';
+                toggleBtn.addEventListener('click', () => toggleNonDicomNotice(toggleBtn, bodyId));
+                controls.appendChild(toggleBtn);
+
+                notice.appendChild(header);
+                notice.appendChild(noticeBody);
+            } else {
+                notice.appendChild(header);
             }
 
-            const toggleBtn = fileNames.length > 0 ? `<button class="notice-toggle" onclick="var b=document.getElementById('noticeBody-${tabId}');b.classList.toggle('expanded');this.textContent=b.classList.contains('expanded')?'▲ hide':'▼ show'" title="Show files">▼ show</button>` : '';
-
-            notice.innerHTML = `
-                <div class="notice-header">
-                    <strong>⚠️ ${count} non-DICOM file${count > 1 ? 's' : ''} removed — only valid DICOM files are kept</strong>
-                    <span>${toggleBtn}<button class="notice-dismiss" title="Dismiss" onclick="this.closest('.non-dicom-notice').remove()">×</button></span>
-                </div>
-                ${fileListHtml}
-            `;
+            const dismissBtn = document.createElement('button');
+            dismissBtn.className = 'notice-dismiss';
+            dismissBtn.setAttribute('aria-label', 'Dismiss');
+            dismissBtn.title = 'Dismiss';
+            dismissBtn.textContent = '×';
+            dismissBtn.addEventListener('click', () => notice.remove());
+            controls.appendChild(dismissBtn);
+            header.appendChild(controls);
 
             const fileList = document.getElementById(`fileList-${tabId}`);
             if (fileList) {

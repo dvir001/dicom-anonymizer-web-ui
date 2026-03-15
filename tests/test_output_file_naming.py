@@ -1,6 +1,6 @@
 import os
 
-from app import _ensure_dicom_filename, _compute_unique_dicom_rel_path
+from dicomanonymizer.file_utils import _ensure_dicom_filename, _compute_unique_dicom_rel_path
 
 
 def test_ensure_dicom_filename_enforces_extension():

@@ -87,10 +87,8 @@ def test_complex_dictionnary_argument(
 
 def test_unrecognized_action_gives_helpful_error():
     sys.argv = ["cmd", "input", "output", "-t", "(0x0010, 0x0010)", "wrong_action"]
-    try:
+    with pytest.raises(ValueError, match="not recognized"):
         main()
-    except ValueError as e:
-        assert "not recognized" in str(e)
 
 
 def test_wrong_number_of_arguments_gives_helpful_error():
@@ -102,7 +100,5 @@ def test_wrong_number_of_arguments_gives_helpful_error():
         "(0x0010, 0x0010)",
         "replace_with_value",
     ]
-    try:
+    with pytest.raises(ValueError, match="number of arguments"):
         main()
-    except ValueError as e:
-        assert "number of arguments" in str(e)

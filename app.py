@@ -23,6 +23,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import zipfile
 from dicomanonymizer.simpledicomanonymizer import anonymize_dicom_file
 from dicomanonymizer.anonymizer import isDICOMType
+from dicomanonymizer.file_utils import _extract_base_filename, _ensure_dicom_filename, _compute_unique_dicom_rel_path
 from pydicom import dcmread
 from pydicom.errors import InvalidDicomError
 import json
@@ -187,45 +188,6 @@ def _get_directory_size(path: str) -> int:
             except OSError:
                 continue
     return total_size
-
-
-def _extract_base_filename(filename: str) -> str:
-    """Return a safe base name to use when converting to .dcm."""
-    if not filename:
-        return 'dicom_file'
-
-    base, _ = os.path.splitext(filename)
-    sanitized = base.strip().strip('.')
-    return sanitized or 'dicom_file'
-
-
-def _ensure_dicom_filename(filename: str) -> str:
-    """Force a filename to use the .dcm extension while preserving the base name."""
-    base_name = _extract_base_filename(filename)
-    return f"{base_name}.dcm"
-
-
-def _compute_unique_dicom_rel_path(rel_path: str, used_paths: Optional[Set[str]] = None) -> str:
-    """Convert a relative path to use .dcm extension and avoid duplicates within a session."""
-    if used_paths is None:
-        used_paths = set()
-
-    normalized_rel = rel_path.replace('/', os.sep).replace('\\', os.sep)
-    rel_dir, original_name = os.path.split(normalized_rel)
-    candidate_name = _ensure_dicom_filename(original_name)
-    candidate_rel = os.path.join(rel_dir, candidate_name) if rel_dir else candidate_name
-    normalized_candidate = os.path.normpath(candidate_rel)
-
-    base_name = _extract_base_filename(original_name)
-    suffix = 1
-    while normalized_candidate in used_paths:
-        alt_name = _ensure_dicom_filename(f"{base_name}-{suffix}")
-        candidate_rel = os.path.join(rel_dir, alt_name) if rel_dir else alt_name
-        normalized_candidate = os.path.normpath(candidate_rel)
-        suffix += 1
-
-    used_paths.add(normalized_candidate)
-    return normalized_candidate
 
 
 def _register_session_dicom_paths(session_id: str, new_paths: Optional[List[str]] = None) -> int:

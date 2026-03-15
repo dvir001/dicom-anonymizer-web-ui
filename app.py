@@ -23,7 +23,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import zipfile
 from dicomanonymizer.simpledicomanonymizer import anonymize_dicom_file
 from dicomanonymizer.anonymizer import isDICOMType
-from dicomanonymizer.file_utils import _extract_base_filename, _ensure_dicom_filename, _compute_unique_dicom_rel_path
+from dicomanonymizer.file_utils import _compute_unique_dicom_rel_path
 from pydicom import dcmread
 from pydicom.errors import InvalidDicomError
 import json

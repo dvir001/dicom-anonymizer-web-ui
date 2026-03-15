@@ -442,12 +442,10 @@ def is_dicom_file(filepath):
         dcmread(filepath, stop_before_pixels=True, force=False)
         return True
     except (InvalidDicomError, OSError):
-        pass
+        return False
     except Exception:
         logger.debug("Unexpected error while checking potential DICOM file %s", filepath, exc_info=True)
         return False
-
-    return False
 
 
 def safe_makedirs(path):
@@ -671,24 +669,24 @@ def cleanup_non_dicom_files(uploaded_files, session_dir):
                     os.remove(file_path)
                     files_deleted += 1
                     deleted_names.append(file_info.get('relative_path') or file_info['name'])
-            except Exception as e:
+            except Exception:
                 logger.exception("Error deleting non-DICOM file %s", file_info['name'])
     
-    # Clean up empty extraction directories (ZIPs are extracted into extracted_* subdirs)
+    # Clean up empty extraction directories (ZIPs are extracted into extracted_* subdirs).
+    # Derives remaining DICOM membership from the already-processed uploaded_files list
+    # to avoid redundant is_dicom_file calls for each file on disk.
+    dicom_paths = {file_info['path'] for file_info in uploaded_files if file_info['is_dicom']}
     try:
         for entry in os.scandir(session_dir):
             if not (entry.is_dir() and entry.name.startswith('extracted_')):
                 continue
             extract_dir = entry.path
-            remaining_dicom_files = []
-            for root, dirs, files in os.walk(extract_dir):
-                for file in files:
-                    full_path = os.path.join(root, file)
-                    if is_dicom_file(full_path):
-                        remaining_dicom_files.append(full_path)
-
-            # If no DICOM files remain in extracted directory, remove it
-            if not remaining_dicom_files:
+            has_dicom = any(
+                os.path.join(root, f) in dicom_paths
+                for root, _, files in os.walk(extract_dir)
+                for f in files
+            )
+            if not has_dicom:
                 shutil.rmtree(extract_dir)
     except Exception:
         logger.exception("Error cleaning up extraction directories")

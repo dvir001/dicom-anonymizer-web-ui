@@ -436,18 +436,15 @@ def is_dicom_file(filepath):
     except OSError:
         return False
 
+    # Attempt strict parsing without force — force=True is too permissive
+    # and causes false positives on arbitrary text/binary files.
     try:
-        dcmread(filepath, stop_before_pixels=True, force=True)
+        dcmread(filepath, stop_before_pixels=True, force=False)
         return True
-    except InvalidDicomError:
+    except (InvalidDicomError, Exception):
         pass
-    except Exception:
-        logger.exception("Unexpected error while probing DICOM file: %s", filepath)
 
-    try:
-        return isDICOMType(filepath)
-    except Exception:
-        return False
+    return False
 
 
 def safe_makedirs(path):
@@ -659,9 +656,10 @@ def create_minimal_anonymization_rules():
 def cleanup_non_dicom_files(uploaded_files, session_dir):
     """
     Immediately delete non-DICOM files to save storage space and improve security.
-    Returns the number of files deleted.
+    Returns a tuple of (files_deleted_count, list_of_deleted_filenames).
     """
     files_deleted = 0
+    deleted_names = []
     for file_info in uploaded_files:
         if not file_info['is_dicom']:
             try:
@@ -669,6 +667,7 @@ def cleanup_non_dicom_files(uploaded_files, session_dir):
                 if os.path.exists(file_path):
                     os.remove(file_path)
                     files_deleted += 1
+                    deleted_names.append(file_info.get('relative_path') or file_info['name'])
             except Exception as e:
                 logger.exception("Error deleting non-DICOM file %s", file_info['name'])
     
@@ -690,7 +689,7 @@ def cleanup_non_dicom_files(uploaded_files, session_dir):
     except Exception as e:
         logger.exception("Error cleaning up extraction directory")
     
-    return files_deleted
+    return files_deleted, deleted_names
 
 
 def cleanup_old_sessions():
@@ -1209,7 +1208,7 @@ def upload_files():
                 })
         
         # Clean up non-DICOM files immediately
-        deleted_count = cleanup_non_dicom_files(uploaded_files, session_dir)
+        deleted_count, deleted_names = cleanup_non_dicom_files(uploaded_files, session_dir)
         
         # Filter out deleted files from the response
         dicom_files = [f for f in uploaded_files if f['is_dicom']]
@@ -1242,6 +1241,7 @@ def upload_files():
             'total_dicom_count': total_session_dicom_count,
             'total_count': len(uploaded_files),
             'non_dicom_deleted': deleted_count,
+            'non_dicom_deleted_names': deleted_names,
             'message': message,
             'is_new_session': is_new_session
         })

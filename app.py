@@ -443,6 +443,9 @@ def is_dicom_file(filepath):
         return True
     except (InvalidDicomError, OSError):
         pass
+    except Exception:
+        logger.debug("Unexpected error while checking potential DICOM file %s", filepath, exc_info=True)
+        return False
 
     return False
 
@@ -671,23 +674,24 @@ def cleanup_non_dicom_files(uploaded_files, session_dir):
             except Exception as e:
                 logger.exception("Error deleting non-DICOM file %s", file_info['name'])
     
-    # Clean up empty extraction directories
+    # Clean up empty extraction directories (ZIPs are extracted into extracted_* subdirs)
     try:
-        extract_dir = os.path.join(session_dir, 'extracted')
-        if os.path.exists(extract_dir):
-            # Check if extract_dir only contains non-DICOM files
+        for entry in os.scandir(session_dir):
+            if not (entry.is_dir() and entry.name.startswith('extracted_')):
+                continue
+            extract_dir = entry.path
             remaining_dicom_files = []
             for root, dirs, files in os.walk(extract_dir):
                 for file in files:
                     full_path = os.path.join(root, file)
                     if is_dicom_file(full_path):
                         remaining_dicom_files.append(full_path)
-            
+
             # If no DICOM files remain in extracted directory, remove it
             if not remaining_dicom_files:
                 shutil.rmtree(extract_dir)
-    except Exception as e:
-        logger.exception("Error cleaning up extraction directory")
+    except Exception:
+        logger.exception("Error cleaning up extraction directories")
     
     return files_deleted, deleted_names
 

@@ -441,7 +441,7 @@ def is_dicom_file(filepath):
     try:
         dcmread(filepath, stop_before_pixels=True, force=False)
         return True
-    except (InvalidDicomError, Exception):
+    except (InvalidDicomError, OSError):
         pass
 
     return False
@@ -1233,6 +1233,8 @@ def upload_files():
         if deleted_count > 0:
             message += f' {deleted_count} non-DICOM files were automatically removed.'
         
+        max_names = 50
+        truncated_names = deleted_names[:max_names]
         return jsonify({
             'success': True,
             'session_id': session_id,
@@ -1241,7 +1243,9 @@ def upload_files():
             'total_dicom_count': total_session_dicom_count,
             'total_count': len(uploaded_files),
             'non_dicom_deleted': deleted_count,
-            'non_dicom_deleted_names': deleted_names,
+            'non_dicom_deleted_names': truncated_names,
+            'non_dicom_deleted_names_was_truncated': len(deleted_names) > max_names,
+            'non_dicom_deleted_names_shown': len(truncated_names),
             'message': message,
             'is_new_session': is_new_session
         })

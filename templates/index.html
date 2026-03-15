@@ -548,7 +548,6 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            cursor: pointer;
         }
 
         .non-dicom-notice .notice-header strong {
@@ -1939,6 +1938,9 @@
 
         function enableUploadForTab(tabId) {
             const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            if (!uploadArea || !tabStates[tabId]) {
+                return;
+            }
             uploadArea.classList.remove('disabled');
             tabStates[tabId].uploadEnabled = true;
             showStatus('📁 Upload enabled. Add more files to the batch.', 'info', tabId);

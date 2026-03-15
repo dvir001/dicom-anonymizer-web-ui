@@ -422,31 +422,28 @@ def is_dicom_file(filepath):
     if not filepath or not os.path.exists(filepath) or not os.path.isfile(filepath):
         return False
 
+    # Quick pre-check: bail out early for files that clearly aren't DICOM.
+    # isDICOMType checks for the b'DICM' magic bytes at the standard preamble
+    # offset (0x80) and returns False for non-DICOM files without raising.
+    # This avoids running dcmread on obviously non-DICOM files, but is not
+    # sufficient on its own — a corrupted file can pass the preamble check yet
+    # be unparseable, so dcmread(force=False) is still required for confirmation.
     try:
-        if isDICOMType(filepath):
-            return True
+        if not isDICOMType(filepath):
+            return False
     except Exception:
         logger.debug("isDICOMType check failed for %s", filepath, exc_info=True)
-
-    try:
-        with open(filepath, 'rb') as stream:
-            preamble = stream.read(132)
-            if len(preamble) >= 132 and preamble[128:132] == b'DICM':
-                return True
-    except OSError:
         return False
 
+    # Confirm with strict parsing — force=False avoids false positives on
+    # arbitrary binary files that happen to carry the DICM magic bytes.
     try:
-        dcmread(filepath, stop_before_pixels=True, force=True)
+        dcmread(filepath, stop_before_pixels=True, force=False)
         return True
-    except InvalidDicomError:
-        pass
+    except (InvalidDicomError, OSError):
+        return False
     except Exception:
-        logger.exception("Unexpected error while probing DICOM file: %s", filepath)
-
-    try:
-        return isDICOMType(filepath)
-    except Exception:
+        logger.debug("Unexpected error while checking potential DICOM file %s", filepath, exc_info=True)
         return False
 
 
@@ -656,12 +653,19 @@ def create_minimal_anonymization_rules():
     return minimal_rules
 
 
-def cleanup_non_dicom_files(uploaded_files, session_dir):
+def cleanup_non_dicom_files(uploaded_files, session_dir, session_id=None):
     """
     Immediately delete non-DICOM files to save storage space and improve security.
-    Returns the number of files deleted.
+    Returns a tuple of (files_deleted_count, list_of_deleted_filenames).
+
+    session_id is used to include previously-uploaded DICOMs (from earlier requests
+    in the same session) when deciding whether to remove extracted_* directories, so
+    that directories containing valid DICOMs from prior uploads are never deleted.
+    When session_id is None, only the files in the current request are considered
+    when evaluating whether an extracted_* directory is safe to remove.
     """
     files_deleted = 0
+    deleted_names = []
     for file_info in uploaded_files:
         if not file_info['is_dicom']:
             try:
@@ -669,28 +673,44 @@ def cleanup_non_dicom_files(uploaded_files, session_dir):
                 if os.path.exists(file_path):
                     os.remove(file_path)
                     files_deleted += 1
-            except Exception as e:
+                    deleted_names.append(file_info.get('relative_path') or file_info['name'])
+            except Exception:
                 logger.exception("Error deleting non-DICOM file %s", file_info['name'])
-    
-    # Clean up empty extraction directories
+
+    # Clean up empty extraction directories (ZIPs are extracted into extracted_* subdirs).
+    # Build the full set of known-good DICOM absolute paths: combine files from this
+    # request with any DICOMs already tracked for the session (earlier uploads).
+    dicom_paths = {file_info['path'] for file_info in uploaded_files if file_info['is_dicom']}
+    if session_id is not None:
+        # Previously registered paths are relative to session_dir; convert to absolute
+        # so the membership test below works correctly.  Guard against path traversal
+        # by verifying each resolved path remains inside the session directory.
+        session_dir_abs = os.path.abspath(session_dir)
+        for rel_path in _get_tracked_dicom_paths(session_id):
+            abs_path = os.path.abspath(os.path.join(session_dir_abs, rel_path))
+            try:
+                if os.path.commonpath([session_dir_abs, abs_path]) == session_dir_abs:
+                    dicom_paths.add(abs_path)
+            except ValueError:
+                # commonpath raises ValueError on Windows when paths are on different drives
+                pass
+
     try:
-        extract_dir = os.path.join(session_dir, 'extracted')
-        if os.path.exists(extract_dir):
-            # Check if extract_dir only contains non-DICOM files
-            remaining_dicom_files = []
-            for root, dirs, files in os.walk(extract_dir):
-                for file in files:
-                    full_path = os.path.join(root, file)
-                    if is_dicom_file(full_path):
-                        remaining_dicom_files.append(full_path)
-            
-            # If no DICOM files remain in extracted directory, remove it
-            if not remaining_dicom_files:
+        for entry in os.scandir(session_dir):
+            if not (entry.is_dir() and entry.name.startswith('extracted_')):
+                continue
+            extract_dir = entry.path
+            has_dicom = any(
+                os.path.join(root, f) in dicom_paths
+                for root, _, files in os.walk(extract_dir)
+                for f in files
+            )
+            if not has_dicom:
                 shutil.rmtree(extract_dir)
-    except Exception as e:
-        logger.exception("Error cleaning up extraction directory")
-    
-    return files_deleted
+    except Exception:
+        logger.exception("Error cleaning up extraction directories")
+
+    return files_deleted, deleted_names
 
 
 def cleanup_old_sessions():
@@ -1209,7 +1229,7 @@ def upload_files():
                 })
         
         # Clean up non-DICOM files immediately
-        deleted_count = cleanup_non_dicom_files(uploaded_files, session_dir)
+        deleted_count, deleted_names = cleanup_non_dicom_files(uploaded_files, session_dir, session_id)
         
         # Filter out deleted files from the response
         dicom_files = [f for f in uploaded_files if f['is_dicom']]
@@ -1234,6 +1254,8 @@ def upload_files():
         if deleted_count > 0:
             message += f' {deleted_count} non-DICOM files were automatically removed.'
         
+        max_names = 50
+        truncated_names = deleted_names[:max_names]
         return jsonify({
             'success': True,
             'session_id': session_id,
@@ -1242,6 +1264,9 @@ def upload_files():
             'total_dicom_count': total_session_dicom_count,
             'total_count': len(uploaded_files),
             'non_dicom_deleted': deleted_count,
+            'non_dicom_deleted_names': truncated_names,
+            'non_dicom_deleted_names_was_truncated': len(deleted_names) > max_names,
+            'non_dicom_deleted_names_shown': len(truncated_names),
             'message': message,
             'is_new_session': is_new_session
         })

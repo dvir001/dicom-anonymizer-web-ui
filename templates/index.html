@@ -21,7 +21,7 @@
             max-width: 1200px;
             margin: 0 auto;
             background: white;
-            padding: 30px;
+            padding: 20px;
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
         }
@@ -34,18 +34,37 @@
 
         .top-bar {
             display: flex;
-            justify-content: flex-end;
             align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
+            gap: 12px;
+            margin-bottom: 12px;
+            padding: 10px 16px;
+            background: linear-gradient(135deg, #e3f2fd, #f3e5f5);
+            border: 1px solid #bbdefb;
+            border-radius: 10px;
         }
 
-        .session-status {
-            font-size: 0.95em;
-            color: #0c5460;
-            background: #d1ecf1;
-            padding: 6px 12px;
-            border-radius: 20px;
+        .top-bar h1 {
+            margin: 0;
+            font-size: 1.3em;
+            font-weight: 400;
+            color: #333;
+            white-space: nowrap;
+        }
+
+        .top-bar .banner-text {
+            flex: 1;
+            margin: 0;
+            color: #1976d2;
+            font-size: 0.88em;
+            font-weight: 500;
+        }
+
+        .top-bar .top-bar-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-left: auto;
+            flex-shrink: 0;
         }
 
         .login-overlay {
@@ -137,8 +156,8 @@
         h1 {
             text-align: center;
             color: #333;
-            margin-bottom: 30px;
-            font-size: 2.2em;
+            margin-bottom: 15px;
+            font-size: 1.6em;
             font-weight: 300;
         }
 
@@ -220,31 +239,60 @@
             background: #e8f4f8;
             border: 1px solid #bee5eb;
             border-radius: 8px;
-            padding: 15px;
-            margin: 15px 0;
+            padding: 6px 12px;
+            margin: 8px 0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.88em;
         }
 
         .batch-info h4 {
-            margin-top: 0;
+            margin: 0;
             color: #0c5460;
+            font-size: 1em;
+            white-space: nowrap;
+        }
+
+        .batch-info .batch-stat {
+            color: #0c5460;
+            white-space: nowrap;
         }
 
         .batch-files-list {
-            max-height: 200px;
-            overflow-y: auto;
-            margin: 10px 0;
+            display: none;
         }
 
         .upload-area {
             border: 3px dashed #ddd;
-            padding: 60px 20px;
+            padding: 25px 20px;
             text-align: center;
-            margin: 30px 0;
+            margin: 10px 0;
             cursor: pointer;
             border-radius: 10px;
             transition: all 0.3s ease;
             position: relative;
             background: #fafafa;
+        }
+
+        .upload-area.compact {
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            border-width: 2px;
+            margin: 6px 0;
+        }
+
+        .upload-area.compact .upload-icon,
+        .upload-area.compact h3,
+        .upload-area.compact > p {
+            display: none;
+        }
+
+        .upload-area.compact .upload-controls {
+            margin-top: 0;
         }
 
         .upload-area.disabled {
@@ -272,13 +320,13 @@
             gap: 10px;
             justify-content: center;
             flex-wrap: wrap;
-            margin-top: 15px;
+            margin-top: 10px;
         }
 
         .upload-icon {
-            font-size: 3em;
+            font-size: 2em;
             color: #007bff;
-            margin-bottom: 15px;
+            margin-bottom: 5px;
             display: block;
         }
 
@@ -324,9 +372,9 @@
         }
 
         .file-item {
-            padding: 15px;
+            padding: 8px 12px;
             background: #f8f9fa;
-            margin: 8px 0;
+            margin: 4px 0;
             border-radius: 8px;
             display: flex;
             justify-content: space-between;
@@ -367,11 +415,12 @@
         }
 
         .status {
-            padding: 15px 20px;
-            margin: 15px 0;
+            padding: 8px 12px;
+            margin: 6px 0;
             border-radius: 8px;
             border-left: 4px solid;
             font-weight: 500;
+            font-size: 0.9em;
         }
 
         .status.success {
@@ -396,24 +445,6 @@
             background: #fff3cd;
             color: #856404;
             border-left-color: #ffc107;
-        }
-
-        .info-banner {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 15px;
-            background: linear-gradient(135deg, #e3f2fd, #f3e5f5);
-            border: 1px solid #bbdefb;
-            border-radius: 10px;
-            padding: 16px 20px;
-            margin: 20px 0;
-        }
-
-        .info-banner p {
-            margin: 0;
-            color: #1976d2;
-            font-weight: 500;
         }
 
         .info-modal {
@@ -459,9 +490,10 @@
         }
 
         .file-list-scroll {
-            max-height: 320px;
+            max-height: calc(100vh - 420px);
+            min-height: 60px;
             overflow-y: auto;
-            margin-top: 10px;
+            margin-top: 5px;
             padding-right: 8px;
         }
 
@@ -485,19 +517,105 @@
         .card {
             background: #f8f9fa;
             border-radius: 10px;
-            padding: 25px;
-            margin: 20px 0;
+            padding: 15px;
+            margin: 12px 0;
             border: 1px solid #e9ecef;
         }
 
         .cleanup-info {
-            font-size: 0.9em;
+            font-size: 0.85em;
             color: #666;
-            margin-top: 15px;
-            padding: 15px;
+            margin-top: 8px;
+            padding: 8px 12px;
             background: #f1f3f4;
             border-radius: 8px;
             border-left: 4px solid #17a2b8;
+        }
+
+        .non-dicom-notice {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-left: 4px solid #e0a800;
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin: 6px 0;
+            position: relative;
+            animation: fadeInNotice 0.3s ease;
+            font-size: 0.88em;
+        }
+
+        .non-dicom-notice .notice-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .non-dicom-notice .notice-header strong {
+            color: #856404;
+            font-size: 0.92em;
+        }
+
+        .non-dicom-notice .notice-toggle {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 0.8em;
+            color: #856404;
+            padding: 0 4px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .non-dicom-notice .notice-toggle:hover {
+            opacity: 1;
+        }
+
+        .non-dicom-notice .notice-dismiss {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1.2em;
+            color: #856404;
+            padding: 0 4px;
+            line-height: 1;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .non-dicom-notice .notice-dismiss:hover {
+            opacity: 1;
+        }
+
+        .non-dicom-notice .notice-body {
+            display: none;
+            margin-top: 4px;
+        }
+
+        .non-dicom-notice .notice-body.expanded {
+            display: block;
+        }
+
+        .non-dicom-notice .notice-file-list {
+            list-style: none;
+            padding: 0;
+            margin: 4px 0 0 0;
+            font-size: 0.85em;
+            color: #664d03;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+
+        .non-dicom-notice .notice-file-list li {
+            padding: 1px 0;
+        }
+
+        .non-dicom-notice .notice-file-list li::before {
+            content: '🗑️ ';
+        }
+
+        @keyframes fadeInNotice {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .progress-bar {
@@ -558,7 +676,7 @@
             gap: 10px;
             flex-wrap: wrap;
             justify-content: center;
-            margin: 20px 0;
+            margin: 8px 0;
         }
 
         .radio-group {
@@ -640,7 +758,7 @@
             }
             
             .upload-area {
-                padding: 40px 15px;
+                padding: 20px 15px;
             }
             
             .button-group {
@@ -652,13 +770,16 @@
                 margin: 5px 0;
             }
 
-            .info-banner {
-                flex-direction: column;
-                align-items: flex-start;
+            .top-bar {
+                flex-wrap: wrap;
             }
 
-            .info-banner .btn {
-                width: auto;
+            .top-bar h1 {
+                font-size: 1.1em;
+            }
+
+            .top-bar .banner-text {
+                display: none;
             }
         }
     </style>
@@ -687,14 +808,12 @@
 
     <div id="appContainer" class="container{% if not is_authenticated %} locked{% endif %}">
         <div class="top-bar">
-            <span id="sessionStatus" class="session-status{% if not is_authenticated %} hidden{% endif %}">🔓 {% if user_display_name %}{{ user_display_name }}{% else %}Session active{% endif %}</span>
-            <button id="logoutButton" type="button" class="btn secondary{% if not is_authenticated %} hidden{% endif %}">🚪 Logout</button>
-        </div>
-        <h1>🏥 DICOM Anonymizer - Batch Processing</h1>
-
-        <div class="info-banner">
-            <p>Secure DICOM anonymization with batch uploads, ZIP extraction, and folder preservation.</p>
-            <button type="button" class="btn secondary" id="aboutButton">ℹ️ About</button>
+            <h1>🏥 DICOM Anonymizer</h1>
+            <p class="banner-text">Secure batch anonymization with ZIP extraction and folder preservation.</p>
+            <div class="top-bar-actions">
+                <button type="button" class="btn secondary" id="aboutButton">ℹ️ About</button>
+                <button id="logoutButton" type="button" class="btn secondary{% if not is_authenticated %} hidden{% endif %}">🚪 Logout</button>
+            </div>
         </div>
 
         <div id="aboutModal" class="info-modal hidden">
@@ -738,9 +857,8 @@
 
                 <div class="upload-area" id="uploadArea-tab-1">
                     <div class="upload-icon">📁</div>
-                    <h3>📤 Upload Files to Batch</h3>
-                    <p>Click to select files, drag and drop, or choose a folder</p>
-                    <p><small>You can add more files before starting anonymization</small></p>
+                    <h3 style="margin: 5px 0">📤 Upload Files to Batch</h3>
+                    <p style="margin: 5px 0">Click to select files, drag and drop, or choose a folder</p>
                     <div class="upload-controls">
                         <button type="button" class="btn secondary" id="selectFiles-tab-1">📁 Select Files</button>
                         <button type="button" class="btn secondary" id="selectFolder-tab-1">📂 Select Folder</button>
@@ -762,45 +880,28 @@
                 <div id="fileList-tab-1" class="hidden"></div>
                 <div id="uploadStatus-tab-1" class="hidden"></div>
 
-                <div id="optionsCard-tab-1" class="hidden">
-                    <h3>⚙️ Anonymization Options</h3>
-                    
-                    <h4>🛡️ Anonymization Mode</h4>
-                    <div style="margin: 15px 0;">
-                        <div style="margin: 10px 0;">
-                            <input type="radio" id="minimalMode-tab-1" name="anonymizationMode-tab-1" value="minimal" checked>
-                            <label for="minimalMode-tab-1">Custom Minimal Anonymization</label>
-                            <br><small>Only anonymizes names, Patient ID, and Study ID</small>
+                <div id="optionsCard-tab-1" class="hidden" style="margin-top: 6px; padding: 10px 14px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
+                    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px;">
+                        <strong style="font-size: 0.92em;">⚙️ Mode:</strong>
+                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="minimalMode-tab-1" name="anonymizationMode-tab-1" value="minimal" checked> Minimal</label>
+                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="standardMode-tab-1" name="anonymizationMode-tab-1" value="standard"> Standard</label>
+                        <div id="standardOptions-tab-1" style="display: none;">
+                            <label style="font-size: 0.88em;"><input type="checkbox" id="keepPrivateTags-tab-1" checked> Keep private tags</label>
                         </div>
-                        
-                        <div style="margin: 10px 0;">
-                            <input type="radio" id="standardMode-tab-1" name="anonymizationMode-tab-1" value="standard">
-                            <label for="standardMode-tab-1">Standard Full Anonymization</label>
-                            <br><small>Applies comprehensive DICOM anonymization rules</small>
+                        <div style="margin-left: auto; display: flex; gap: 8px;">
+                            <button id="anonymizeBtn-tab-1" class="btn" style="padding: 8px 16px; margin: 0; font-size: 0.88em;" onclick="startAnonymization('tab-1')">🔒 Anonymize</button>
                         </div>
-                    </div>
-
-                    <div id="standardOptions-tab-1" style="display: none;">
-                        <label>
-                            <input type="checkbox" id="keepPrivateTags-tab-1" checked> Keep private DICOM tags
-                        </label>
-                        <p><small>Private tags will be preserved. Uncheck to remove private tags for maximum anonymization</small></p>
-                    </div>
-
-                    <div class="button-group">
-                        <button id="addMoreBtn-tab-1" class="btn warning" onclick="enableUploadForTab('tab-1')">📁 Add More Files</button>
-                        <button id="anonymizeBtn-tab-1" class="btn" onclick="startAnonymization('tab-1')">🔒 Start Anonymization</button>
                     </div>
                 </div>
 
-                <div id="resultsCard-tab-1" class="hidden">
-                    <h3>✅ Anonymization Complete</h3>
-                    <div id="resultsStatus-tab-1"></div>
-                    <button id="downloadBtn-tab-1" class="btn">📥 Download Anonymized Files</button>
-                    <button class="btn" onclick="startOver('tab-1')">🔄 Start New Batch</button>
-
-                    <div class="cleanup-info">
-                        <p><strong>Note:</strong> Files will be automatically deleted from the server after 30 minutes or when you logout for security.</p>
+                <div id="resultsCard-tab-1" class="hidden" style="padding: 10px 14px; background: #d4edda; border-radius: 8px; border: 1px solid #c3e6cb; margin-top: 6px;">
+                    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <strong>✅ Anonymization Complete</strong>
+                        <div id="resultsStatus-tab-1" style="font-size: 0.9em;"></div>
+                        <div style="margin-left: auto; display: flex; gap: 8px;">
+                            <button id="downloadBtn-tab-1" class="btn" style="padding: 8px 16px; margin: 0; font-size: 0.88em;">📥 Download</button>
+                            <button class="btn secondary" style="padding: 8px 16px; margin: 0; font-size: 0.88em;" onclick="startOver('tab-1')">🔄 New Batch</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -827,7 +928,7 @@
         const loginButton = document.getElementById('loginButton');
         const loginError = document.getElementById('loginError');
         const logoutButton = document.getElementById('logoutButton');
-        const sessionStatus = document.getElementById('sessionStatus');
+
     const aboutButton = document.getElementById('aboutButton');
     const aboutModal = document.getElementById('aboutModal');
     const aboutCloseButton = document.getElementById('aboutCloseButton');
@@ -850,16 +951,9 @@
         let activeTab = 'tab-1';
         let tabCounter = 1;
 
-        function updateSessionUI(isAuthenticated) {
-            if (sessionStatus) {
-                if (isAuthenticated) {
-                    sessionStatus.classList.remove('hidden');
-                    sessionStatus.textContent = '🔓 Session active';
-                } else {
-                    sessionStatus.classList.add('hidden');
-                }
-            }
+        const ANONYMIZE_BTN_LABEL = '🔒 Anonymize';
 
+        function updateSessionUI(isAuthenticated) {
             if (logoutButton) {
                 logoutButton.classList.toggle('hidden', !isAuthenticated);
                 logoutButton.disabled = false;
@@ -1028,9 +1122,8 @@
 
                 <div class="upload-area" id="uploadArea-${tabId}">
                     <div class="upload-icon">📁</div>
-                    <h3>📤 Upload Files to Batch</h3>
-                    <p>Click to select files, drag and drop, or choose a folder</p>
-                    <p><small>You can add more files before starting anonymization</small></p>
+                    <h3 style="margin: 5px 0">📤 Upload Files to Batch</h3>
+                    <p style="margin: 5px 0">Click to select files, drag and drop, or choose a folder</p>
                     <div class="upload-controls">
                         <button type="button" class="btn secondary" id="selectFiles-${tabId}">📁 Select Files</button>
                         <button type="button" class="btn secondary" id="selectFolder-${tabId}">📂 Select Folder</button>
@@ -1052,45 +1145,28 @@
                 <div id="fileList-${tabId}" class="hidden"></div>
                 <div id="uploadStatus-${tabId}" class="hidden"></div>
 
-                <div id="optionsCard-${tabId}" class="hidden">
-                    <h3>⚙️ Anonymization Options</h3>
-                    
-                    <h4>🛡️ Anonymization Mode</h4>
-                    <div style="margin: 15px 0;">
-                        <div style="margin: 10px 0;">
-                            <input type="radio" id="minimalMode-${tabId}" name="anonymizationMode-${tabId}" value="minimal" checked>
-                            <label for="minimalMode-${tabId}">Custom Minimal Anonymization</label>
-                            <br><small>Only anonymizes names, Patient ID, and Study ID</small>
+                <div id="optionsCard-${tabId}" class="hidden" style="margin-top: 6px; padding: 10px 14px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
+                    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px;">
+                        <strong style="font-size: 0.92em;">⚙️ Mode:</strong>
+                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="minimalMode-${tabId}" name="anonymizationMode-${tabId}" value="minimal" checked> Minimal</label>
+                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="standardMode-${tabId}" name="anonymizationMode-${tabId}" value="standard"> Standard</label>
+                        <div id="standardOptions-${tabId}" style="display: none;">
+                            <label style="font-size: 0.88em;"><input type="checkbox" id="keepPrivateTags-${tabId}" checked> Keep private tags</label>
                         </div>
-                        
-                        <div style="margin: 10px 0;">
-                            <input type="radio" id="standardMode-${tabId}" name="anonymizationMode-${tabId}" value="standard">
-                            <label for="standardMode-${tabId}">Standard Full Anonymization</label>
-                            <br><small>Applies comprehensive DICOM anonymization rules</small>
+                        <div style="margin-left: auto; display: flex; gap: 8px;">
+                            <button id="anonymizeBtn-${tabId}" class="btn" style="padding: 8px 16px; margin: 0; font-size: 0.88em;" onclick="startAnonymization('${tabId}')">🔒 Anonymize</button>
                         </div>
-                    </div>
-
-                    <div id="standardOptions-${tabId}" style="display: none;">
-                        <label>
-                            <input type="checkbox" id="keepPrivateTags-${tabId}" checked> Keep private DICOM tags
-                        </label>
-                        <p><small>Private tags will be preserved. Uncheck to remove private tags for maximum anonymization</small></p>
-                    </div>
-
-                    <div class="button-group">
-                        <button id="addMoreBtn-${tabId}" class="btn warning" onclick="enableUploadForTab('${tabId}')">📁 Add More Files</button>
-                        <button id="anonymizeBtn-${tabId}" class="btn" onclick="startAnonymization('${tabId}')">🔒 Start Anonymization</button>
                     </div>
                 </div>
 
-                <div id="resultsCard-${tabId}" class="hidden">
-                    <h3>✅ Anonymization Complete</h3>
-                    <div id="resultsStatus-${tabId}"></div>
-                    <button id="downloadBtn-${tabId}" class="btn">📥 Download Anonymized Files</button>
-                    <button class="btn" onclick="startOver('${tabId}')">🔄 Start New Batch</button>
-
-                    <div class="cleanup-info">
-                        <p><strong>Note:</strong> Files will be automatically deleted from the server after 30 minutes or when you logout for security.</p>
+                <div id="resultsCard-${tabId}" class="hidden" style="padding: 10px 14px; background: #d4edda; border-radius: 8px; border: 1px solid #c3e6cb; margin-top: 6px;">
+                    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <strong>✅ Anonymization Complete</strong>
+                        <div id="resultsStatus-${tabId}" style="font-size: 0.9em;"></div>
+                        <div style="margin-left: auto; display: flex; gap: 8px;">
+                            <button id="downloadBtn-${tabId}" class="btn" style="padding: 8px 16px; margin: 0; font-size: 0.88em;">📥 Download</button>
+                            <button class="btn secondary" style="padding: 8px 16px; margin: 0; font-size: 0.88em;" onclick="startOver('${tabId}')">🔄 New Batch</button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1205,7 +1281,7 @@
             const anonymizeBtn = tabContent.querySelector(`#anonymizeBtn-${tabId}`);
             if (anonymizeBtn) {
                 anonymizeBtn.disabled = false;
-                anonymizeBtn.textContent = '🔒 Start Anonymization';
+                anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
             }
             
             // Clear file inputs
@@ -1547,6 +1623,12 @@
 
             showProgressState(5, 'Preparing upload...');
 
+            // Disable upload area while upload is in progress
+            const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            if (uploadArea) {
+                uploadArea.classList.add('disabled');
+            }
+
             const formData = new FormData();
             files.forEach(file => {
                 formData.append('files', file);
@@ -1623,6 +1705,11 @@
                 }
                 state.uploadController = null;
                 hideProgress();
+                // Re-enable upload area on error/cancel
+                const uploadAreaEl = document.getElementById(`uploadArea-${tabId}`);
+                if (uploadAreaEl) {
+                    uploadAreaEl.classList.remove('disabled');
+                }
                 if (error && error.cancelled) {
                     showStatus('ℹ️ Upload cancelled. You can try again when ready.', 'info', tabId);
                 } else {
@@ -1639,10 +1726,16 @@
             state.uploadController = null;
             hideProgress();
 
+            // Re-enable upload area after successful completion
+            const uploadAreaDone = document.getElementById(`uploadArea-${tabId}`);
+            if (uploadAreaDone) {
+                uploadAreaDone.classList.remove('disabled');
+            }
+
             if (uploadOutcome && uploadOutcome.unauthorized) {
                 if (anonymizeBtn) {
                     anonymizeBtn.disabled = false;
-                    anonymizeBtn.textContent = '🔒 Start Anonymization';
+                    anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
                 }
                 enableUploadForTab(tabId);
                 return;
@@ -1663,6 +1756,11 @@
 
                 displayBatchInfo(tabId);
                 displayUploadedFiles(state.files, tabId);
+
+                // Show notice about removed non-DICOM files
+                if (result.non_dicom_deleted > 0) {
+                    showNonDicomNotice(tabId, result.non_dicom_deleted, result.non_dicom_deleted_names || []);
+                }
 
                 if (state.totalDicomCount > 0) {
                     showStatus(`✅ Batch contains ${state.totalDicomCount} DICOM files. You can add more or start processing.`, 'success', tabId);
@@ -1686,10 +1784,15 @@
             
             batchInfo.classList.remove('hidden');
             batchStats.innerHTML = `
-                <p><strong>Session ID:</strong> ${state.sessionId.substring(0, 8)}...</p>
-                <p><strong>Total DICOM Files:</strong> ${state.totalDicomCount}</p>
-                <p><strong>Status:</strong> Ready for processing</p>
+                <span class="batch-stat"><strong>${state.totalDicomCount}</strong> DICOM files</span>
+                <span class="batch-stat">Session: ${state.sessionId.substring(0, 8)}…</span>
             `;
+
+            // Switch upload area to compact mode
+            const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            if (uploadArea && !uploadArea.classList.contains('compact')) {
+                uploadArea.classList.add('compact');
+            }
         }
 
         function displayUploadedFiles(files, tabId) {
@@ -1702,7 +1805,7 @@
 
             fileList.innerHTML = `
                 <div class="file-list-header">
-                    <h4>📋 Files in Current Batch</h4>
+                    <h4 style="margin: 0; font-size: 0.95em;">📋 Files in Batch</h4>
                     <span class="file-list-summary">${totalFiles} files • ${dicomCount} DICOM</span>
                 </div>
                 <div class="file-list-scroll" id="fileListScroll-${tabId}"></div>
@@ -1730,10 +1833,10 @@
 
             Object.keys(fileGroups).forEach(group => {
                 const groupDiv = document.createElement('div');
-                groupDiv.style.marginBottom = '15px';
+                groupDiv.style.marginBottom = '6px';
 
                 const groupHeader = document.createElement('h5');
-                groupHeader.style.color = '#0066cc';
+                groupHeader.style.cssText = 'color: #0066cc; margin: 0 0 4px 0; font-size: 0.88em;';
                 groupHeader.textContent = group;
                 groupDiv.appendChild(groupHeader);
 
@@ -1745,16 +1848,19 @@
                     const fileStatus = file.is_dicom ? 'DICOM' : 'Not DICOM';
                     const fileIcon = file.is_dicom ? '🏥' : '📄';
 
-                    fileItem.innerHTML = `
-                        <span>${fileIcon} ${fileName}</span>
-                        <span class="badge ${file.is_dicom ? 'dicom' : 'non-dicom'}">${fileStatus}</span>
-                    `;
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = `${fileIcon} ${fileName}`;
+                    const badgeSpan = document.createElement('span');
+                    badgeSpan.className = `badge ${file.is_dicom ? 'dicom' : 'non-dicom'}`;
+                    badgeSpan.textContent = fileStatus;
+                    fileItem.appendChild(nameSpan);
+                    fileItem.appendChild(badgeSpan);
                     groupDiv.appendChild(fileItem);
 
                     if (file.is_dicom) {
                         const summaryItem = document.createElement('div');
                         summaryItem.style.padding = '2px 5px';
-                        summaryItem.innerHTML = `🏥 ${fileName}`;
+                        summaryItem.textContent = `🏥 ${fileName}`;
                         batchFilesList.appendChild(summaryItem);
                     }
                 });
@@ -1765,6 +1871,90 @@
             });
 
             fileList.classList.remove('hidden');
+        }
+
+        function toggleNonDicomNotice(btn, bodyId) {
+            const body = document.getElementById(bodyId);
+            if (!body) return;
+            body.classList.toggle('expanded');
+            const expanded = body.classList.contains('expanded');
+            btn.setAttribute('aria-expanded', expanded);
+            btn.textContent = expanded ? '▲ hide' : '▼ show';
+        }
+
+        function showNonDicomNotice(tabId, count, fileNames) {
+            // Remove any existing notice for this tab
+            const existingNotice = document.getElementById(`nonDicomNotice-${tabId}`);
+            if (existingNotice) {
+                existingNotice.remove();
+            }
+
+            const notice = document.createElement('div');
+            notice.id = `nonDicomNotice-${tabId}`;
+            notice.className = 'non-dicom-notice';
+
+            const header = document.createElement('div');
+            header.className = 'notice-header';
+
+            const title = document.createElement('strong');
+            title.textContent = `⚠️ ${count} non-DICOM file${count > 1 ? 's' : ''} removed — only valid DICOM files are kept`;
+            header.appendChild(title);
+
+            const controls = document.createElement('span');
+
+            if (fileNames.length > 0) {
+                const displayNames = fileNames.slice(0, 20);
+                const bodyId = `noticeBody-${tabId}`;
+
+                const noticeBody = document.createElement('div');
+                noticeBody.className = 'notice-body';
+                noticeBody.id = bodyId;
+
+                const ul = document.createElement('ul');
+                ul.className = 'notice-file-list';
+                displayNames.forEach(name => {
+                    const li = document.createElement('li');
+                    li.textContent = name;
+                    ul.appendChild(li);
+                });
+                if (count > displayNames.length) {
+                    const moreLi = document.createElement('li');
+                    const em = document.createElement('em');
+                    em.textContent = `...and ${count - displayNames.length} more`;
+                    moreLi.appendChild(em);
+                    ul.appendChild(moreLi);
+                }
+                noticeBody.appendChild(ul);
+
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'notice-toggle';
+                toggleBtn.setAttribute('aria-label', 'Toggle file list');
+                toggleBtn.setAttribute('aria-expanded', 'false');
+                toggleBtn.setAttribute('aria-controls', bodyId);
+                toggleBtn.title = 'Toggle file list';
+                toggleBtn.textContent = '▼ show';
+                toggleBtn.addEventListener('click', () => toggleNonDicomNotice(toggleBtn, bodyId));
+                controls.appendChild(toggleBtn);
+
+                notice.appendChild(header);
+                notice.appendChild(noticeBody);
+            } else {
+                notice.appendChild(header);
+            }
+
+            const dismissBtn = document.createElement('button');
+            dismissBtn.className = 'notice-dismiss';
+            dismissBtn.setAttribute('aria-label', 'Dismiss');
+            dismissBtn.title = 'Dismiss';
+            dismissBtn.textContent = '×';
+            dismissBtn.addEventListener('click', () => notice.remove());
+            controls.appendChild(dismissBtn);
+            header.appendChild(controls);
+
+            const fileList = document.getElementById(`fileList-${tabId}`);
+            if (fileList) {
+                fileList.parentNode.insertBefore(notice, fileList);
+            }
         }
 
         function cancelActiveUpload(tabId) {
@@ -1796,7 +1986,11 @@
 
         function enableUploadForTab(tabId) {
             const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            if (!uploadArea || !tabStates[tabId]) {
+                return;
+            }
             uploadArea.classList.remove('disabled');
+            tabStates[tabId].uploadEnabled = true;
             showStatus('📁 Upload enabled. Add more files to the batch.', 'info', tabId);
         }
 
@@ -1851,17 +2045,17 @@
                     showAnonymizationResults(result, tabId);
                     // Reset button state after success
                     anonymizeBtn.disabled = false;
-                    anonymizeBtn.textContent = '🔒 Start Anonymization';
+                    anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
                 } else {
                     showStatus(`❌ Anonymization failed: ${result.error}`, 'error', tabId);
                     anonymizeBtn.disabled = false;
-                    anonymizeBtn.textContent = '🔒 Start Anonymization';
+                    anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
                     enableUploadForTab(tabId);
                 }
             } catch (error) {
                 showStatus(`❌ Anonymization failed: ${error.message}`, 'error', tabId);
                 anonymizeBtn.disabled = false;
-                anonymizeBtn.textContent = '🔒 Start Anonymization';
+                anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
                 enableUploadForTab(tabId);
             }
         }
@@ -1947,7 +2141,7 @@
             const anonymizeBtn = document.getElementById(`anonymizeBtn-${tabId}`);
             if (anonymizeBtn) {
                 anonymizeBtn.disabled = false;
-                anonymizeBtn.textContent = '🔒 Start Anonymization';
+                anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
             }
             
             resetTabContent(tabContent, tabId);
@@ -1969,6 +2163,18 @@
             document.getElementById(`resultsCard-${tabId}`).classList.add('hidden');
             document.getElementById(`uploadStatus-${tabId}`).classList.add('hidden');
             document.getElementById(`uploadProgress-${tabId}`).classList.add('hidden');
+
+            // Restore upload area to full mode
+            const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            if (uploadArea) {
+                uploadArea.classList.remove('compact', 'disabled');
+            }
+
+            // Remove non-DICOM notice if present
+            const nonDicomNotice = document.getElementById(`nonDicomNotice-${tabId}`);
+            if (nonDicomNotice) {
+                nonDicomNotice.remove();
+            }
             
             showStatus('🚀 Ready to upload a new batch of files.', 'info', tabId);
         }

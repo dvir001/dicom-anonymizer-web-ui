@@ -656,7 +656,7 @@ def create_minimal_anonymization_rules():
 def cleanup_non_dicom_files(uploaded_files, session_dir, session_id=None):
     """
     Immediately delete non-DICOM files to save storage space and improve security.
-    Returns a tuple of (files_deleted_count, list_of_deleted_filenames).
+    Returns a tuple of (files_deleted_count, list_of_deleted_paths).
 
     session_id is used to include previously-uploaded DICOMs (from earlier requests
     in the same session) when deciding whether to remove extracted_* directories, so

@@ -428,23 +428,70 @@ def is_dicom_file(filepath):
     # This avoids running dcmread on obviously non-DICOM files, but is not
     # sufficient on its own — a corrupted file can pass the preamble check yet
     # be unparseable, so dcmread(force=False) is still required for confirmation.
+    has_preamble = False
     try:
-        if not isDICOMType(filepath):
+        has_preamble = isDICOMType(filepath)
+    except Exception:
+        # Failure to check the preamble should not crash the validator; fall back
+        # to a more expensive parse-based check instead.
+        logger.debug("isDICOMType check failed for %s", filepath, exc_info=True)
+        has_preamble = False
+
+    if has_preamble:
+        # Confirm with strict parsing — force=False avoids false positives on
+        # arbitrary binary files that happen to carry the DICM magic bytes.
+        try:
+            dcmread(filepath, stop_before_pixels=True, force=False)
+            return True
+        except (InvalidDicomError, OSError):
+            return False
+        except Exception:
+            logger.debug(
+                "Unexpected error while checking potential DICOM file with preamble %s",
+                filepath,
+                exc_info=True,
+            )
+            return False
+
+    # Fallback path for files without a DICOM preamble (no 'DICM' marker) or where
+    # the preamble check failed. Try to parse the dataset and then validate that
+    # it looks like a real DICOM by checking for required UID tags.
+    ds = None
+    try:
+        # First try a strict read; many non-Part 10 but otherwise valid datasets
+        # can still be parsed without force=True.
+        ds = dcmread(filepath, stop_before_pixels=True, force=False)
+    except (InvalidDicomError, OSError):
+        # If strict parsing fails, fall back to a forced read, but only accept
+        # the file as DICOM after additional semantic validation below.
+        try:
+            ds = dcmread(filepath, stop_before_pixels=True, force=True)
+        except (InvalidDicomError, OSError):
+            return False
+        except Exception:
+            logger.debug(
+                "Unexpected error while force-reading potential DICOM file %s",
+                filepath,
+                exc_info=True,
+            )
             return False
     except Exception:
-        logger.debug("isDICOMType check failed for %s", filepath, exc_info=True)
+        logger.debug(
+            "Unexpected error while reading potential DICOM file without preamble %s",
+            filepath,
+            exc_info=True,
+        )
         return False
 
-    # Confirm with strict parsing — force=False avoids false positives on
-    # arbitrary binary files that happen to carry the DICM magic bytes.
-    try:
-        dcmread(filepath, stop_before_pixels=True, force=False)
-        return True
-    except (InvalidDicomError, OSError):
+    if ds is None:
         return False
-    except Exception:
-        logger.debug("Unexpected error while checking potential DICOM file %s", filepath, exc_info=True)
+
+    # Minimal semantic validation: require at least one typical UID attribute.
+    uid_attrs = ("SOPClassUID", "SOPInstanceUID", "StudyInstanceUID", "SeriesInstanceUID")
+    if not any(getattr(ds, name, None) for name in uid_attrs):
         return False
+
+    return True
 
 
 def safe_makedirs(path):

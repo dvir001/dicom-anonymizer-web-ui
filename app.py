@@ -703,7 +703,8 @@ def create_minimal_anonymization_rules():
 def cleanup_non_dicom_files(uploaded_files, session_dir, session_id=None):
     """
     Immediately delete non-DICOM files to save storage space and improve security.
-    Returns a tuple of (files_deleted_count, list_of_deleted_paths).
+    Returns a tuple of (files_deleted_count, list_of_deleted_display_names), where the
+    second element contains relative paths or display names suitable for showing in the UI.
 
     session_id is used to include previously-uploaded DICOMs (from earlier requests
     in the same session) when deciding whether to remove extracted_* directories, so
@@ -712,7 +713,7 @@ def cleanup_non_dicom_files(uploaded_files, session_dir, session_id=None):
     when evaluating whether an extracted_* directory is safe to remove.
     """
     files_deleted = 0
-    deleted_names = []
+    deleted_display_names = []
     for file_info in uploaded_files:
         if not file_info['is_dicom']:
             try:
@@ -720,7 +721,7 @@ def cleanup_non_dicom_files(uploaded_files, session_dir, session_id=None):
                 if os.path.exists(file_path):
                     os.remove(file_path)
                     files_deleted += 1
-                    deleted_names.append(file_info.get('relative_path') or file_info['name'])
+                    deleted_display_names.append(file_info.get('relative_path') or file_info['name'])
             except Exception:
                 logger.exception("Error deleting non-DICOM file %s", file_info['name'])
 
@@ -757,7 +758,7 @@ def cleanup_non_dicom_files(uploaded_files, session_dir, session_id=None):
     except Exception:
         logger.exception("Error cleaning up extraction directories")
 
-    return files_deleted, deleted_names
+    return files_deleted, deleted_display_names
 
 
 def cleanup_old_sessions():

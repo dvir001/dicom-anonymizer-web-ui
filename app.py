@@ -15,6 +15,7 @@ import logging
 import secrets
 import re
 import posixpath
+import concurrent.futures
 from typing import Optional, List, Set
 from flask import Flask, render_template, request, send_file, jsonify, session, redirect, url_for, flash
 from flask_cors import CORS
@@ -136,19 +137,24 @@ if AZURE_CLIENT_ID:
 UPLOAD_FOLDER = PROJECT_ROOT / 'temp_uploads'
 OUTPUT_FOLDER = PROJECT_ROOT / 'temp_outputs'
 
+CHUNK_FOLDER = PROJECT_ROOT / 'temp_chunks'
+
 try:
     UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
     OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
-    logger.info("Working directories initialized: uploads=%s, outputs=%s", UPLOAD_FOLDER, OUTPUT_FOLDER)
+    CHUNK_FOLDER.mkdir(parents=True, exist_ok=True)
+    logger.info("Working directories initialized: uploads=%s, outputs=%s, chunks=%s", UPLOAD_FOLDER, OUTPUT_FOLDER, CHUNK_FOLDER)
 except PermissionError as e:
     logger.error("Permission error creating directories: %s", e)
     # Fallback to system temp directory
     UPLOAD_FOLDER = Path(tempfile.mkdtemp(prefix='dicom_uploads_'))
     OUTPUT_FOLDER = Path(tempfile.mkdtemp(prefix='dicom_outputs_'))
-    logger.warning("Using fallback directories: uploads=%s, outputs=%s", UPLOAD_FOLDER, OUTPUT_FOLDER)
+    CHUNK_FOLDER = Path(tempfile.mkdtemp(prefix='dicom_chunks_'))
+    logger.warning("Using fallback directories: uploads=%s, outputs=%s, chunks=%s", UPLOAD_FOLDER, OUTPUT_FOLDER, CHUNK_FOLDER)
 
 app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
 app.config['OUTPUT_FOLDER'] = str(OUTPUT_FOLDER)
+app.config['CHUNK_FOLDER'] = str(CHUNK_FOLDER)
 
 # Session tracking for automatic cleanup (10 minutes)
 session_timestamps = {}
@@ -278,11 +284,29 @@ def _get_tracked_dicom_paths(session_id: str) -> Set[str]:
         return tracked
 
 
+_last_storage_check_time = 0
+_last_storage_total = 0
+_storage_check_lock = threading.Lock()
+
 def _get_total_storage_usage() -> int:
+    global _last_storage_check_time, _last_storage_total
+    
+    # Fast path: check if we have a recent cached value (within last 30 seconds)
+    now = time.time()
+    with _storage_check_lock:
+        if now - _last_storage_check_time < 30.0:
+            return _last_storage_total
+            
+    # Cache miss: recalculate
     total = 0
-    for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER]:
+    for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER, CHUNK_FOLDER]:
         if os.path.exists(folder):
             total += _get_directory_size(str(folder))
+            
+    with _storage_check_lock:
+        _last_storage_total = total
+        _last_storage_check_time = time.time()
+        
     return total
 
 
@@ -422,36 +446,15 @@ def is_dicom_file(filepath):
     if not filepath or not os.path.exists(filepath) or not os.path.isfile(filepath):
         return False
 
-    # Quick pre-check: bail out early for files that clearly aren't DICOM.
-    # isDICOMType checks for the b'DICM' magic bytes at the standard preamble
-    # offset (0x80) and returns False for non-DICOM files without raising.
-    # This avoids running dcmread on obviously non-DICOM files, but is not
-    # sufficient on its own — a corrupted file can pass the preamble check yet
-    # be unparseable, so dcmread(force=False) is still required for confirmation.
+    # Quick pre-check: isDICOMType checks for b'DICM' magic bytes at offset 0x80.
     has_preamble = False
     try:
         has_preamble = isDICOMType(filepath)
     except Exception:
-        # Failure to check the preamble should not crash the validator; fall back
-        # to a more expensive parse-based check instead.
-        logger.debug("isDICOMType check failed for %s", filepath, exc_info=True)
         has_preamble = False
 
     if has_preamble:
-        # Confirm with strict parsing — force=False avoids false positives on
-        # arbitrary binary files that happen to carry the DICM magic bytes.
-        try:
-            dcmread(filepath, stop_before_pixels=True, force=False)
-            return True
-        except (InvalidDicomError, OSError):
-            return False
-        except Exception:
-            logger.debug(
-                "Unexpected error while checking potential DICOM file with preamble %s",
-                filepath,
-                exc_info=True,
-            )
-            return False
+        return True
 
     # Fallback path for files without a DICOM preamble (no 'DICM' marker) or where
     # the preamble check failed. Try to parse the dataset and then validate that
@@ -461,26 +464,12 @@ def is_dicom_file(filepath):
         # First try a strict read; many non-Part 10 but otherwise valid datasets
         # can still be parsed without force=True.
         ds = dcmread(filepath, stop_before_pixels=True, force=False)
-    except (InvalidDicomError, OSError):
-        # If strict parsing fails, fall back to a forced read, but only accept
-        # the file as DICOM after additional semantic validation below.
-        try:
-            ds = dcmread(filepath, stop_before_pixels=True, force=True)
-        except (InvalidDicomError, OSError):
-            return False
-        except Exception:
-            logger.debug(
-                "Unexpected error while force-reading potential DICOM file %s",
-                filepath,
-                exc_info=True,
-            )
-            return False
     except Exception:
-        logger.debug(
-            "Unexpected error while reading potential DICOM file without preamble %s",
-            filepath,
-            exc_info=True,
-        )
+        # If strict parsing fails, it's not a valid DICOM. 
+        # We explicitly REMOVED `force=True` fallback here because if a user uploads a ZIP
+        # full of 10,000 JPEGs or PDFs, `force=True` will attempt to parse all of them
+        # as corrupted DICOMs, taking hundreds of milliseconds per file, resulting in 
+        # an infinite server hang.
         return False
 
     if ds is None:
@@ -492,6 +481,20 @@ def is_dicom_file(filepath):
         return False
 
     return True
+
+
+def _classify_files_parallel(file_entries):
+    """
+    Classify a list of file entries as DICOM or not sequentially.
+    (Kept name for compatibility, but stripped the ThreadPoolExecutor).
+    With the dcmread removal for 99% of files, this takes <1ms per file
+    and spawning hundreds of threads inside Gunicorn freezes the CPython GIL.
+    """
+    for entry in file_entries:
+        try:
+            entry['is_dicom'] = is_dicom_file(entry['path'])
+        except Exception:
+            entry['is_dicom'] = False
 
 
 def safe_makedirs(path):
@@ -508,6 +511,7 @@ def safe_makedirs(path):
         normalized_bases = [
             os.path.normcase(os.path.abspath(str(UPLOAD_FOLDER))),
             os.path.normcase(os.path.abspath(str(OUTPUT_FOLDER))),
+            os.path.normcase(os.path.abspath(str(CHUNK_FOLDER))),
             os.path.normcase(os.path.abspath(tempfile.gettempdir()))
         ]
 
@@ -703,8 +707,7 @@ def create_minimal_anonymization_rules():
 def cleanup_non_dicom_files(uploaded_files, session_dir, session_id=None):
     """
     Immediately delete non-DICOM files to save storage space and improve security.
-    Returns a tuple of (files_deleted_count, list_of_deleted_display_names), where the
-    second element contains relative paths or display names suitable for showing in the UI.
+    Returns a tuple of (files_deleted_count, list_of_deleted_paths).
 
     session_id is used to include previously-uploaded DICOMs (from earlier requests
     in the same session) when deciding whether to remove extracted_* directories, so
@@ -713,7 +716,7 @@ def cleanup_non_dicom_files(uploaded_files, session_dir, session_id=None):
     when evaluating whether an extracted_* directory is safe to remove.
     """
     files_deleted = 0
-    deleted_display_names = []
+    deleted_names = []
     for file_info in uploaded_files:
         if not file_info['is_dicom']:
             try:
@@ -721,7 +724,7 @@ def cleanup_non_dicom_files(uploaded_files, session_dir, session_id=None):
                 if os.path.exists(file_path):
                     os.remove(file_path)
                     files_deleted += 1
-                    deleted_display_names.append(file_info.get('relative_path') or file_info['name'])
+                    deleted_names.append(file_info.get('relative_path') or file_info['name'])
             except Exception:
                 logger.exception("Error deleting non-DICOM file %s", file_info['name'])
 
@@ -744,21 +747,39 @@ def cleanup_non_dicom_files(uploaded_files, session_dir, session_id=None):
                 pass
 
     try:
-        for entry in os.scandir(session_dir):
-            if not (entry.is_dir() and entry.name.startswith('extracted_')):
-                continue
-            extract_dir = entry.path
-            has_dicom = any(
-                os.path.join(root, f) in dicom_paths
-                for root, _, files in os.walk(extract_dir)
-                for f in files
-            )
-            if not has_dicom:
-                shutil.rmtree(extract_dir)
+        # Optimization: To prevent locking the server for O(n^2) operations during
+        # massive chained batch uploads (which call this function frequently),
+        # only walk directories that were created in *this specific request* 
+        # (i.e., we look at the paths of uploaded/extracted files).
+        extracted_dirs_to_check = set()
+        for file_info in uploaded_files:
+            file_path = file_info.get('path')
+            if file_path:
+                # If it's inside an extracted_* folder, track that root folder
+                parts = Path(file_path).parts
+                for i, p in enumerate(parts):
+                    if p.startswith('extracted_'):
+                        extracted_dirs_to_check.add(str(Path(*parts[:i+1])))
+                        break
+
+        for extract_dir in extracted_dirs_to_check:
+            # Check if this extracted directory has any valid DICOMs
+            has_dicom = False
+            for root, _, files in os.walk(extract_dir):
+                for f in files:
+                    if os.path.join(root, f) in dicom_paths:
+                        has_dicom = True
+                        break
+                if has_dicom:
+                    break
+                        
+            if not has_dicom and os.path.exists(extract_dir):
+                shutil.rmtree(extract_dir, ignore_errors=True)
+                
     except Exception:
         logger.exception("Error cleaning up extraction directories")
 
-    return files_deleted, deleted_display_names
+    return files_deleted, deleted_names
 
 
 def cleanup_old_sessions():
@@ -801,7 +822,24 @@ def cleanup_old_sessions():
                     
                 except Exception as e:
                     logger.exception("Error cleaning up session %s", session_id)
-            
+
+            # Clean up stale chunk directories (older than 30 minutes)
+            chunk_timeout = 30 * 60
+            try:
+                chunk_base = app.config.get('CHUNK_FOLDER', str(CHUNK_FOLDER))
+                if os.path.isdir(chunk_base):
+                    for entry in os.scandir(chunk_base):
+                        if entry.is_dir():
+                            try:
+                                dir_age = current_time - entry.stat().st_mtime
+                                if dir_age > chunk_timeout:
+                                    shutil.rmtree(entry.path, ignore_errors=True)
+                                    logger.info("Cleaned up stale chunk directory: %s", entry.name)
+                            except OSError:
+                                pass
+            except Exception:
+                logger.exception("Error cleaning up stale chunk directories")
+
             # Sleep for 1 minute before next cleanup check
             time.sleep(60)
             
@@ -840,6 +878,12 @@ def login_required(f):
 # Start the cleanup background thread
 cleanup_thread = threading.Thread(target=cleanup_old_sessions, daemon=True)
 cleanup_thread.start()
+
+
+@app.errorhandler(413)
+def _handle_413(exc):
+    logger.error("413 Request Entity Too Large: %s", exc)
+    return jsonify({'error': 'File too large. Maximum upload size is 3 GB.'}), 413
 
 
 @app.route('/health')
@@ -1075,15 +1119,12 @@ def upload_files():
     for storage_file in files:
         if storage_file and hasattr(storage_file, 'content_length') and storage_file.content_length:
             total_upload_size += storage_file.content_length
-        elif storage_file:
-            try:
-                stream = storage_file.stream
-                current_pos = stream.tell()
-                stream.seek(0, os.SEEK_END)
-                total_upload_size += stream.tell()
-                stream.seek(current_pos)
-            except (OSError, AttributeError):
-                pass
+        else:
+            # If content_length is missing, we must NOT use stream.seek(0, os.SEEK_END)
+            # because that forces Werkzeug to synchronously buffer the entire potentially
+            # massive stream from the network, which blocks the single-threaded Flask
+            # process for minutes on large uploads, causing reverse proxy timeouts.
+            pass
 
     if total_upload_size > app.config['MAX_CONTENT_LENGTH']:
         return jsonify({
@@ -1261,7 +1302,7 @@ def upload_files():
                             'name': zip_file,
                             'path': full_path,
                             'relative_path': rel_path,
-                            'is_dicom': is_dicom_file(full_path),
+                            'is_dicom': False,
                             'from_zip': True,
                             'original_archive': original_filename
                         })
@@ -1271,11 +1312,14 @@ def upload_files():
                     'name': target_name,
                     'path': filepath,
                     'relative_path': normalized_rel_path,
-                    'is_dicom': is_dicom_file(filepath),
+                    'is_dicom': False,
                     'from_zip': False,
                     'original_archive': None
                 })
-        
+
+        # Classify all files as DICOM/non-DICOM
+        _classify_files_parallel(uploaded_files)
+
         # Clean up non-DICOM files immediately
         deleted_count, deleted_names = cleanup_non_dicom_files(uploaded_files, session_dir, session_id)
         
@@ -1325,6 +1369,312 @@ def upload_files():
             if 'user_sessions' in session and session_id in session['user_sessions']:
                 session['user_sessions'].remove(session_id)
         return jsonify({'error': f'Upload failed: {str(exc)}'}), 500
+
+
+@app.route('/upload-chunk', methods=['POST'])
+@login_required
+def upload_chunk():
+    """
+    Receive a single chunk of a large file upload.
+    Files larger than 50MB are split by the client and sent as sequential chunks.
+    """
+    chunk = request.files.get('chunk')
+    if not chunk:
+        return jsonify({'error': 'No chunk data provided'}), 400
+
+    upload_id = request.form.get('upload_id', '')
+    chunk_index_raw = request.form.get('chunk_index', '')
+    total_chunks_raw = request.form.get('total_chunks', '')
+    filename = request.form.get('filename', '')
+
+    # Validate upload_id (UUID v4 format)
+    if not upload_id or not re.match(r'^[a-f0-9\-]{36}$', upload_id):
+        return jsonify({'error': 'Invalid upload ID'}), 400
+
+    try:
+        chunk_index = int(chunk_index_raw)
+        total_chunks = int(total_chunks_raw)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid chunk index or total'}), 400
+
+    if chunk_index < 0 or total_chunks < 1 or chunk_index >= total_chunks:
+        return jsonify({'error': 'Invalid chunk parameters'}), 400
+
+    if not filename or not allowed_file(filename):
+        return jsonify({'error': 'Invalid filename'}), 400
+
+    # Storage check
+    current_storage = _get_total_storage_usage()
+    if current_storage > MAX_TOTAL_STORAGE * 0.9:
+        return jsonify({'error': 'Server storage nearly full. Please try again later.'}), 507
+
+    chunk_dir = os.path.join(app.config['CHUNK_FOLDER'], upload_id)
+    if not safe_makedirs(chunk_dir):
+        return jsonify({'error': 'Failed to create chunk directory'}), 500
+
+    chunk_path = os.path.join(chunk_dir, str(chunk_index))
+    chunk.save(chunk_path)
+
+    received = sum(1 for f in os.listdir(chunk_dir) if f.isdigit())
+
+    return jsonify({
+        'success': True,
+        'chunk_index': chunk_index,
+        'chunks_received': received,
+        'total_chunks': total_chunks,
+    })
+
+
+@app.route('/upload-chunk-complete', methods=['POST'])
+@login_required
+def upload_chunk_complete():
+    """
+    Assemble previously uploaded chunks into a complete file and add it to a session.
+    Performs the same DICOM validation and processing as the regular /upload endpoint.
+    """
+    data = request.get_json(silent=True) or {}
+
+    upload_id = data.get('upload_id', '')
+    filename = data.get('filename', '')
+    relative_path = data.get('relative_path', '')
+    session_id = data.get('session_id', '')
+    total_chunks_raw = data.get('total_chunks', 0)
+
+    if not upload_id or not re.match(r'^[a-f0-9\-]{36}$', upload_id):
+        return jsonify({'error': 'Invalid upload ID'}), 400
+
+    try:
+        total_chunks = int(total_chunks_raw)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid total chunks'}), 400
+
+    if total_chunks < 1:
+        return jsonify({'error': 'Invalid total chunks'}), 400
+
+    if session_id and not re.match(r'^[a-f0-9]{32}$', session_id):
+        return jsonify({'error': 'Invalid session ID format'}), 400
+
+    if not filename or not allowed_file(filename):
+        return jsonify({'error': 'Invalid filename'}), 400
+
+    client_fingerprint = session.get('user_oid') or session.get('user_email') or 'anonymous'
+
+    chunk_dir = os.path.join(app.config['CHUNK_FOLDER'], upload_id)
+    if not os.path.isdir(chunk_dir):
+        return jsonify({'error': 'Chunk upload not found'}), 404
+
+    received = sum(1 for f in os.listdir(chunk_dir) if f.isdigit())
+    if received < total_chunks:
+        return jsonify({'error': f'Missing chunks: received {received}/{total_chunks}'}), 400
+
+    # Session setup
+    is_new_session = False
+    if not session_id:
+        session_id = os.urandom(16).hex()
+        is_new_session = True
+
+        with session_lock:
+            user_sessions = user_session_counts.get(client_fingerprint, 0)
+            if user_sessions >= MAX_SESSIONS_PER_USER:
+                shutil.rmtree(chunk_dir, ignore_errors=True)
+                return jsonify({
+                    'error': f'Maximum {MAX_SESSIONS_PER_USER} concurrent sessions allowed per user.'
+                }), 429
+            user_session_counts[client_fingerprint] = user_sessions + 1
+
+    session_dir = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
+
+    if not is_new_session and not os.path.exists(session_dir):
+        shutil.rmtree(chunk_dir, ignore_errors=True)
+        return jsonify({'error': 'Session not found'}), 404
+
+    _record_session_activity(session_id, fingerprint=client_fingerprint)
+
+    if 'user_sessions' not in session:
+        session['user_sessions'] = []
+    if session_id not in session['user_sessions']:
+        session['user_sessions'].append(session_id)
+        session.permanent = True
+
+    if is_new_session:
+        if not safe_makedirs(session_dir):
+            _clear_session_activity(session_id)
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+            return jsonify({'error': 'Failed to create upload directory'}), 500
+
+    try:
+        # Determine target filename
+        sanitized_filename = secure_filename(filename)
+        if not sanitized_filename:
+            sanitized_filename = hashlib.sha1(
+                filename.encode('utf-8', errors='ignore') or b'file'
+            ).hexdigest()[:16]
+
+        rel_dir = ''
+        if relative_path:
+            rel_dir_part, rel_filename_part = _sanitize_relative_path(relative_path)
+            rel_dir = rel_dir_part
+            if rel_filename_part:
+                sanitized_filename = secure_filename(rel_filename_part) or sanitized_filename
+
+        if sanitized_filename.startswith('.'):
+            sanitized_filename = sanitized_filename.lstrip('.') or sanitized_filename
+
+        if len(sanitized_filename) > 255:
+            sanitized_filename = sanitized_filename[:255]
+
+        target_directory = os.path.join(session_dir, rel_dir) if rel_dir else session_dir
+        if rel_dir and not safe_makedirs(target_directory):
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+            return jsonify({'error': 'Failed to create target directory'}), 500
+
+        # Deduplicate filename
+        existing_paths = set()
+        for root, _, files_in_dir in os.walk(session_dir):
+            for existing in files_in_dir:
+                rel_existing = os.path.relpath(os.path.join(root, existing), session_dir)
+                existing_paths.add(os.path.normpath(rel_existing))
+
+        target_name = sanitized_filename
+        base_name, ext = os.path.splitext(target_name)
+        suffix = 1
+        rel_candidate = os.path.normpath(os.path.join(rel_dir, target_name)) if rel_dir else os.path.normpath(target_name)
+
+        while rel_candidate in existing_paths or os.path.exists(os.path.join(session_dir, rel_candidate)):
+            target_name = f"{base_name}_{suffix}{ext}" if ext else f"{base_name}_{suffix}"
+            suffix += 1
+            rel_candidate = os.path.normpath(os.path.join(rel_dir, target_name)) if rel_dir else os.path.normpath(target_name)
+
+        filepath = os.path.join(target_directory, target_name)
+
+        # Path traversal check
+        abs_filepath = os.path.abspath(filepath)
+        abs_session_dir = os.path.abspath(session_dir)
+        try:
+            if os.path.commonpath([abs_filepath, abs_session_dir]) != abs_session_dir:
+                shutil.rmtree(chunk_dir, ignore_errors=True)
+                return jsonify({'error': 'Invalid file path'}), 400
+        except ValueError:
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+            return jsonify({'error': 'Invalid file path'}), 400
+
+        # Assemble chunks into the final file
+        with open(filepath, 'wb') as assembled:
+            for i in range(total_chunks):
+                chunk_path = os.path.join(chunk_dir, str(i))
+                if not os.path.exists(chunk_path):
+                    shutil.rmtree(chunk_dir, ignore_errors=True)
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+                    return jsonify({'error': f'Missing chunk {i}'}), 400
+                with open(chunk_path, 'rb') as chunk_file:
+                    shutil.copyfileobj(chunk_file, assembled)
+
+        # Clean up chunk directory
+        shutil.rmtree(chunk_dir, ignore_errors=True)
+
+        # Process the assembled file (DICOM validation, ZIP extraction)
+        uploaded_files = []
+
+        is_zip = False
+        try:
+            with zipfile.ZipFile(filepath, 'r') as test_zip:
+                total_size = sum(info.file_size for info in test_zip.infolist())
+                if total_size > 1024 * 1024 * 1024:
+                    logger.warning("ZIP file too large when extracted: %s (%d bytes)", filepath, total_size)
+                    os.remove(filepath)
+                    return jsonify({'error': 'ZIP file too large when extracted'}), 413
+
+                for info in test_zip.infolist():
+                    if '..' in info.filename or info.filename.startswith('/') or '\\' in info.filename:
+                        logger.warning("Malicious path in ZIP file: %s", info.filename)
+                        os.remove(filepath)
+                        return jsonify({'error': 'ZIP contains invalid paths'}), 400
+
+                is_zip = True
+        except zipfile.BadZipFile:
+            is_zip = False
+        except Exception as exc:
+            logger.warning("Error processing ZIP file %s: %s", filepath, str(exc))
+            is_zip = False
+
+        if is_zip:
+            extract_dir = os.path.join(session_dir, f'extracted_{target_name}')
+            if not safe_makedirs(extract_dir):
+                os.remove(filepath)
+                return jsonify({'error': 'Failed to create extraction directory'}), 500
+
+            with zipfile.ZipFile(filepath, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+
+            os.remove(filepath)
+
+            for root, _, files_in_zip in os.walk(extract_dir):
+                for zip_file in files_in_zip:
+                    full_path = os.path.join(root, zip_file)
+                    rel_path = os.path.relpath(full_path, session_dir).replace('\\', '/')
+                    uploaded_files.append({
+                        'name': zip_file,
+                        'path': full_path,
+                        'relative_path': rel_path,
+                        'is_dicom': False,
+                        'from_zip': True,
+                        'original_archive': filename
+                    })
+        else:
+            normalized_rel_path = rel_candidate.replace('\\', '/')
+            uploaded_files.append({
+                'name': target_name,
+                'path': filepath,
+                'relative_path': normalized_rel_path,
+                'is_dicom': False,
+                'from_zip': False,
+                'original_archive': None
+            })
+
+        # Classify all files as DICOM/non-DICOM in parallel
+        _classify_files_parallel(uploaded_files)
+
+        # Clean up non-DICOM files
+        deleted_count, deleted_names = cleanup_non_dicom_files(uploaded_files, session_dir, session_id)
+
+        dicom_files = [f for f in uploaded_files if f['is_dicom']]
+        new_dicom_paths = [f.get('relative_path') for f in dicom_files if f.get('relative_path')]
+        total_session_dicom_count = _register_session_dicom_paths(session_id, new_dicom_paths)
+
+        session_size = _get_directory_size(session_dir)
+        _record_session_activity(session_id, session_size, client_fingerprint)
+
+        message = f'Added {len(uploaded_files)} files from chunked upload.'
+        if deleted_count > 0:
+            message += f' {deleted_count} non-DICOM files were automatically removed.'
+
+        max_names = 50
+        truncated_names = deleted_names[:max_names]
+
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'files': dicom_files,
+            'new_dicom_count': len(dicom_files),
+            'total_dicom_count': total_session_dicom_count,
+            'total_count': len(uploaded_files),
+            'non_dicom_deleted': deleted_count,
+            'non_dicom_deleted_names': truncated_names,
+            'non_dicom_deleted_names_was_truncated': len(deleted_names) > max_names,
+            'non_dicom_deleted_names_shown': len(truncated_names),
+            'message': message,
+            'is_new_session': is_new_session
+        })
+
+    except Exception as exc:
+        shutil.rmtree(chunk_dir, ignore_errors=True)
+        if is_new_session:
+            _clear_session_activity(session_id)
+            if 'user_sessions' in session and session_id in session['user_sessions']:
+                session['user_sessions'].remove(session_id)
+        logger.exception("Chunked upload assembly failed for upload_id=%s", upload_id)
+        return jsonify({'error': f'Upload assembly failed: {str(exc)}'}), 500
 
 
 @app.route('/anonymize', methods=['POST'])
@@ -1400,6 +1750,11 @@ def anonymize_files():
                 if is_dicom_file(input_file):
                     # Preserve the relative path structure in output
                     rel_path = os.path.relpath(input_file, input_dir)
+                    # Strip the extracted_* prefix that was added during ZIP extraction
+                    # so the output mirrors the original ZIP's internal structure.
+                    rel_parts = Path(rel_path).parts
+                    if rel_parts and rel_parts[0].startswith('extracted_'):
+                        rel_path = str(Path(*rel_parts[1:])) if len(rel_parts) > 1 else rel_parts[0].replace('extracted_', '', 1)
                     dicom_rel_path = _compute_unique_dicom_rel_path(rel_path, used_output_rel_paths)
                     output_file = os.path.join(output_session_dir, dicom_rel_path)
                     

@@ -372,35 +372,35 @@
         }
 
         .file-item {
-            padding: 8px 12px;
+            padding: 4px 10px;
             background: #f8f9fa;
-            margin: 4px 0;
-            border-radius: 8px;
+            margin: 2px 0;
+            border-radius: 4px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            transition: all 0.2s ease;
+            font-size: 0.82em;
+            line-height: 1.3;
         }
 
         .file-item:hover {
             background: #e9ecef;
-            transform: translateX(5px);
         }
 
         .file-item.dicom {
-            border-left: 4px solid #28a745;
-            background: linear-gradient(90deg, #d4edda, #f8f9fa);
+            border-left: 3px solid #28a745;
+            background: #f0f9f2;
         }
 
         .file-item.non-dicom {
-            border-left: 4px solid #ffc107;
-            background: linear-gradient(90deg, #fff3cd, #f8f9fa);
+            border-left: 3px solid #ffc107;
+            background: #fffdf0;
         }
 
         .badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8em;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.72em;
             font-weight: 500;
         }
 
@@ -490,8 +490,8 @@
         }
 
         .file-list-scroll {
-            max-height: calc(100vh - 420px);
-            min-height: 60px;
+            max-height: 30vh;
+            min-height: 40px;
             overflow-y: auto;
             margin-top: 5px;
             padding-right: 8px;
@@ -730,16 +730,24 @@
         .directory-tree {
             background: #f8f9fa;
             border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 15px 0;
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin: 6px 0;
             font-family: 'Courier New', monospace;
+            font-size: 0.8em;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .directory-tree h5 {
+            margin: 0 0 4px 0;
             font-size: 0.9em;
         }
 
         .directory-item {
-            margin: 5px 0;
-            padding-left: 20px;
+            margin: 1px 0;
+            padding-left: 12px;
+            line-height: 1.4;
         }
 
         .directory-folder {
@@ -749,6 +757,47 @@
 
         .directory-file {
             color: #333;
+        }
+
+        /* Anonymization results - compact collapsible file list */
+        .anon-results-files {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #c3e6cb;
+            border-radius: 6px;
+            margin-top: 6px;
+            background: #fff;
+        }
+
+        .anon-results-files .file-row {
+            padding: 3px 10px;
+            font-size: 0.8em;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .anon-results-files .file-row:last-child {
+            border-bottom: none;
+        }
+
+        .anon-results-files .file-row:nth-child(even) {
+            background: #f8fdf9;
+        }
+
+        .anon-results-toggle {
+            background: none;
+            border: 1px solid #c3e6cb;
+            border-radius: 4px;
+            padding: 3px 10px;
+            font-size: 0.82em;
+            cursor: pointer;
+            color: #155724;
+        }
+
+        .anon-results-toggle:hover {
+            background: #d4edda;
         }
 
         @media (max-width: 768px) {
@@ -1561,6 +1610,8 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
+        const UPLOAD_CHUNK_SIZE = 50 * 1024 * 1024; // 50MB per HTTP request (under Cloudflare 100MB limit)
+
         async function uploadFiles(files = [], tabId) {
             if (files.length === 0) return;
 
@@ -1621,7 +1672,7 @@
                 }, 800);
             };
 
-            showProgressState(5, 'Preparing upload...');
+            showProgressState(2, 'Preparing upload...');
 
             // Disable upload area while upload is in progress
             const uploadArea = document.getElementById(`uploadArea-${tabId}`);
@@ -1629,54 +1680,113 @@
                 uploadArea.classList.add('disabled');
             }
 
-            const formData = new FormData();
-            files.forEach(file => {
-                formData.append('files', file);
-                const relPath = file.webkitRelativePath || file.relativePath || '';
-                formData.append('relative_paths', relPath);
-            });
+            // Categorize files: small (fit in batched requests) vs large (need chunking)
+            let totalBytes = 0;
+            const smallFiles = [];
+            const largeFiles = [];
 
-            if (state.sessionId) {
-                formData.append('session_id', state.sessionId);
+            for (const file of files) {
+                totalBytes += file.size;
+                if (file.size > UPLOAD_CHUNK_SIZE) {
+                    largeFiles.push(file);
+                } else {
+                    smallFiles.push(file);
+                }
             }
 
-            let uploadOutcome;
-            try {
-                uploadOutcome = await new Promise((resolve, reject) => {
+            // Yield to browser to let it render the progress bar
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Group small files into batches of <= UPLOAD_CHUNK_SIZE total
+            const fileBatches = [];
+            let currentBatch = [];
+            let currentBatchSize = 0;
+
+            for (const file of smallFiles) {
+                if (currentBatchSize + file.size > UPLOAD_CHUNK_SIZE && currentBatch.length > 0) {
+                    fileBatches.push(currentBatch);
+                    currentBatch = [];
+                    currentBatchSize = 0;
+                }
+                currentBatch.push(file);
+                currentBatchSize += file.size;
+            }
+            if (currentBatch.length > 0) {
+                fileBatches.push(currentBatch);
+            }
+
+            // Build ordered upload tasks
+            const tasks = [];
+            for (const batch of fileBatches) {
+                const batchSize = batch.reduce((sum, f) => sum + f.size, 0);
+                tasks.push({ type: 'batch', files: batch, size: batchSize });
+            }
+            
+            // Yield to browser again before processing massive FormData
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            for (const file of largeFiles) {
+                tasks.push({ type: 'chunked-file', file: file, size: file.size });
+            }
+
+            if (tasks.length === 0) return;
+
+            let bytesSent = 0;
+            let aborted = false;
+            let currentXhr = null;
+
+            state.uploadController = {
+                active: true,
+                xhr: null,
+                abort() {
+                    aborted = true;
+                    if (currentXhr) {
+                        try { currentXhr.abort(); } catch (_) {}
+                    }
+                }
+            };
+
+            // Helper: send an XHR request with progress tracking
+            function sendXhr(formData, url) {
+                return new Promise((resolve, reject) => {
+                    if (aborted) { reject({ cancelled: true, message: 'Upload cancelled by user.' }); return; }
+
                     const xhr = new XMLHttpRequest();
-                    state.uploadController = { xhr, active: true };
-                    xhr.open('POST', '/upload', true);
+                    currentXhr = xhr;
+                    state.uploadController.xhr = xhr;
+
+                    xhr.open('POST', url, true);
                     xhr.responseType = 'json';
                     xhr.setRequestHeader('Accept', 'application/json');
 
-                    xhr.upload.addEventListener('loadstart', () => {
-                        showProgressState(5, 'Starting upload...');
-                    });
-
                     xhr.upload.addEventListener('progress', (event) => {
-                        if (event.lengthComputable) {
-                            const percent = Math.round((event.loaded / event.total) * 100);
+                        if (event.lengthComputable && totalBytes > 0) {
+                            const overallSent = bytesSent + event.loaded;
+                            const percent = Math.round((overallSent / totalBytes) * 100);
                             const refined = Math.min(percent, 99);
-                            showProgressState(refined, `Uploading files... ${refined}%`);
-                        } else {
-                            showProgressState(50, 'Uploading files...', true);
+                            showProgressState(refined, `Uploading... ${refined}%`);
                         }
                     });
 
-                    xhr.addEventListener('error', () => reject(new Error('Network error during upload.')));
-                    xhr.addEventListener('timeout', () => reject(new Error('Upload timed out.')));
-                    xhr.addEventListener('abort', () => {
-                        reject({ cancelled: true, message: 'Upload cancelled by user.' });
+                    xhr.upload.addEventListener('load', () => {
+                        const serverStart = Date.now();
+                        const serverTimer = setInterval(() => {
+                            const elapsed = Math.round((Date.now() - serverStart) / 1000);
+                            showProgressState(99, `Processing files on server... (${elapsed}s)`, true);
+                        }, 1000);
+                        xhr._serverTimer = serverTimer;
+                        showProgressState(99, 'Processing files on server...', true);
                     });
 
+                    xhr.addEventListener('error', () => { clearInterval(xhr._serverTimer); reject(new Error('Network error during upload.')); });
+                    xhr.addEventListener('timeout', () => { clearInterval(xhr._serverTimer); reject(new Error('Upload timed out.')); });
+                    xhr.addEventListener('abort', () => { clearInterval(xhr._serverTimer); reject({ cancelled: true, message: 'Upload cancelled by user.' }); });
+
                     xhr.addEventListener('load', () => {
+                        clearInterval(xhr._serverTimer);
                         let payload = xhr.response;
                         if (!payload && xhr.responseText) {
-                            try {
-                                payload = JSON.parse(xhr.responseText);
-                            } catch (_) {
-                                payload = null;
-                            }
+                            try { payload = JSON.parse(xhr.responseText); } catch (_) { payload = null; }
                         }
 
                         if (xhr.status === 401) {
@@ -1687,29 +1797,180 @@
                         }
 
                         if (xhr.status >= 200 && xhr.status < 300) {
-                            showProgressState(100, 'Finalizing upload...');
                             resolve({ data: payload });
                             return;
                         }
 
-                        const errorMessage = (payload && payload.error) || `Upload failed with status ${xhr.status}.`;
-                        reject(new Error(errorMessage));
+                        reject(new Error((payload && payload.error) || `Upload failed with status ${xhr.status}.`));
                     });
 
                     xhr.send(formData);
                 });
+            }
+
+            // Helper: send a JSON POST request
+            function sendJson(url, body) {
+                return new Promise((resolve, reject) => {
+                    if (aborted) { reject({ cancelled: true, message: 'Upload cancelled by user.' }); return; }
+
+                    const xhr = new XMLHttpRequest();
+                    currentXhr = xhr;
+                    state.uploadController.xhr = xhr;
+
+                    xhr.open('POST', url, true);
+                    xhr.responseType = 'json';
+                    xhr.setRequestHeader('Content-Type', 'application/json');
+                    xhr.setRequestHeader('Accept', 'application/json');
+
+                    const jsonStart = Date.now();
+                    const jsonTimer = setInterval(() => {
+                        const elapsed = Math.round((Date.now() - jsonStart) / 1000);
+                        showProgressState(99, `Processing files on server... (${elapsed}s)`, true);
+                    }, 1000);
+
+                    xhr.addEventListener('error', () => { clearInterval(jsonTimer); reject(new Error('Network error.')); });
+                    xhr.addEventListener('abort', () => { clearInterval(jsonTimer); reject({ cancelled: true, message: 'Upload cancelled by user.' }); });
+
+                    xhr.addEventListener('load', () => {
+                        clearInterval(jsonTimer);
+                        let payload = xhr.response;
+                        if (!payload && xhr.responseText) {
+                            try { payload = JSON.parse(xhr.responseText); } catch (_) { payload = null; }
+                        }
+
+                        if (xhr.status === 401) {
+                            lockInterface((payload && payload.error) || 'Session expired.');
+                            resolve({ unauthorized: true });
+                            return;
+                        }
+
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            resolve({ data: payload });
+                        } else {
+                            reject(new Error((payload && payload.error) || `Request failed (${xhr.status}).`));
+                        }
+                    });
+
+                    xhr.send(JSON.stringify(body));
+                });
+            }
+
+            let allDicomFiles = [];
+            let lastResult = null;
+            let uploadOutcome = null;
+
+            try {
+                for (let taskIndex = 0; taskIndex < tasks.length; taskIndex++) {
+                    if (aborted) throw { cancelled: true, message: 'Upload cancelled by user.' };
+
+                    const task = tasks[taskIndex];
+
+                    if (task.type === 'batch') {
+                        // Send batch of small files via /upload
+                        const formData = new FormData();
+                        task.files.forEach(file => {
+                            formData.append('files', file);
+                            formData.append('relative_paths', file.webkitRelativePath || file.relativePath || '');
+                        });
+                        if (state.sessionId) {
+                            formData.append('session_id', state.sessionId);
+                        }
+
+                        const outcome = await sendXhr(formData, '/upload');
+                        if (outcome.unauthorized) { uploadOutcome = { unauthorized: true }; break; }
+
+                        const result = outcome.data;
+                        if (result && result.success) {
+                            state.sessionId = result.session_id;
+                            lastResult = result;
+                            if (Array.isArray(result.files)) {
+                                allDicomFiles = allDicomFiles.concat(result.files);
+                            }
+                        } else {
+                            throw new Error((result && result.error) || 'Upload batch failed.');
+                        }
+
+                        bytesSent += task.size;
+
+                    } else if (task.type === 'chunked-file') {
+                        // Upload a large file in chunks
+                        const file = task.file;
+                        const totalChunks = Math.ceil(file.size / UPLOAD_CHUNK_SIZE);
+                        const uploadId = crypto.randomUUID();
+
+                        for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+                            if (aborted) throw { cancelled: true, message: 'Upload cancelled by user.' };
+
+                            const start = chunkIdx * UPLOAD_CHUNK_SIZE;
+                            const end = Math.min(start + UPLOAD_CHUNK_SIZE, file.size);
+                            const blob = file.slice(start, end);
+
+                            const chunkForm = new FormData();
+                            chunkForm.append('chunk', blob, `chunk_${chunkIdx}`);
+                            chunkForm.append('upload_id', uploadId);
+                            chunkForm.append('chunk_index', String(chunkIdx));
+                            chunkForm.append('total_chunks', String(totalChunks));
+                            chunkForm.append('filename', file.name);
+                            chunkForm.append('relative_path', file.webkitRelativePath || file.relativePath || '');
+                            if (state.sessionId) {
+                                chunkForm.append('session_id', state.sessionId);
+                            }
+
+                            const chunkOutcome = await sendXhr(chunkForm, '/upload-chunk');
+                            if (chunkOutcome.unauthorized) { uploadOutcome = { unauthorized: true }; break; }
+
+                            const chunkResult = chunkOutcome.data;
+                            if (!chunkResult || !chunkResult.success) {
+                                throw new Error((chunkResult && chunkResult.error) || 'Chunk upload failed.');
+                            }
+
+                            bytesSent += (end - start);
+                        }
+
+                        if (uploadOutcome && uploadOutcome.unauthorized) break;
+                        if (aborted) throw { cancelled: true, message: 'Upload cancelled by user.' };
+
+                        // Assemble chunks on the server
+                        showProgressState(
+                            Math.min(Math.round((bytesSent / totalBytes) * 100), 99),
+                            'Assembling file on server...',
+                            true
+                        );
+
+                        const completeOutcome = await sendJson('/upload-chunk-complete', {
+                            upload_id: uploadId,
+                            filename: file.name,
+                            relative_path: file.webkitRelativePath || file.relativePath || '',
+                            session_id: state.sessionId || '',
+                            total_chunks: totalChunks
+                        });
+
+                        if (completeOutcome.unauthorized) { uploadOutcome = { unauthorized: true }; break; }
+
+                        const completeResult = completeOutcome.data;
+                        if (completeResult && completeResult.success) {
+                            state.sessionId = completeResult.session_id;
+                            lastResult = completeResult;
+                            if (Array.isArray(completeResult.files)) {
+                                allDicomFiles = allDicomFiles.concat(completeResult.files);
+                            }
+                        } else {
+                            throw new Error((completeResult && completeResult.error) || 'File assembly failed.');
+                        }
+                    }
+                }
+
+                showProgressState(100, 'Finalizing upload...');
+
             } catch (error) {
                 const controller = state.uploadController;
-                if (controller) {
-                    controller.active = false;
-                }
+                if (controller) { controller.active = false; }
                 state.uploadController = null;
                 hideProgress();
-                // Re-enable upload area on error/cancel
+
                 const uploadAreaEl = document.getElementById(`uploadArea-${tabId}`);
-                if (uploadAreaEl) {
-                    uploadAreaEl.classList.remove('disabled');
-                }
+                if (uploadAreaEl) { uploadAreaEl.classList.remove('disabled'); }
+
                 if (error && error.cancelled) {
                     showStatus('ℹ️ Upload cancelled. You can try again when ready.', 'info', tabId);
                 } else {
@@ -1720,17 +1981,13 @@
             }
 
             const controller = state.uploadController;
-            if (controller) {
-                controller.active = false;
-            }
+            if (controller) { controller.active = false; }
             state.uploadController = null;
             hideProgress();
 
-            // Re-enable upload area after successful completion
+            // Re-enable upload area
             const uploadAreaDone = document.getElementById(`uploadArea-${tabId}`);
-            if (uploadAreaDone) {
-                uploadAreaDone.classList.remove('disabled');
-            }
+            if (uploadAreaDone) { uploadAreaDone.classList.remove('disabled'); }
 
             if (uploadOutcome && uploadOutcome.unauthorized) {
                 if (anonymizeBtn) {
@@ -1741,17 +1998,17 @@
                 return;
             }
 
-            const result = uploadOutcome ? uploadOutcome.data : null;
+            // Use the last result for final counts, but merge all DICOM files
+            const result = lastResult;
 
             if (result && result.success) {
                 state.sessionId = result.session_id;
                 state.totalDicomCount = result.total_dicom_count;
 
-                const uploadedFiles = Array.isArray(result.files) ? result.files : [];
-                if (result.is_new_session) {
-                    state.files = uploadedFiles;
+                if (tasks.length === 1 && tasks[0].type === 'batch' && result.is_new_session) {
+                    state.files = allDicomFiles;
                 } else {
-                    state.files = state.files.concat(uploadedFiles);
+                    state.files = state.files.concat(allDicomFiles);
                 }
 
                 displayBatchInfo(tabId);
@@ -1927,7 +2184,6 @@
                 noticeBody.appendChild(ul);
 
                 const toggleBtn = document.createElement('button');
-                toggleBtn.type = 'button';
                 toggleBtn.className = 'notice-toggle';
                 toggleBtn.setAttribute('aria-label', 'Toggle file list');
                 toggleBtn.setAttribute('aria-expanded', 'false');
@@ -1944,7 +2200,6 @@
             }
 
             const dismissBtn = document.createElement('button');
-            dismissBtn.type = 'button';
             dismissBtn.className = 'notice-dismiss';
             dismissBtn.setAttribute('aria-label', 'Dismiss');
             dismissBtn.title = 'Dismiss';
@@ -1961,20 +2216,24 @@
 
         function cancelActiveUpload(tabId) {
             const state = tabStates[tabId];
-            if (!state || !state.uploadController || !state.uploadController.xhr) {
+            if (!state || !state.uploadController) {
                 return;
             }
 
             const controller = state.uploadController;
-            const { xhr } = controller;
             controller.active = false;
-            state.uploadController = null;
 
             try {
-                xhr.abort();
+                if (typeof controller.abort === 'function') {
+                    controller.abort();
+                } else if (controller.xhr) {
+                    controller.xhr.abort();
+                }
             } catch (error) {
                 console.warn('Error aborting upload', error);
             }
+
+            state.uploadController = null;
 
             const progressText = document.getElementById(`progressText-${tabId}`);
             const cancelUploadBtn = document.getElementById(`cancelUpload-${tabId}`);
@@ -2064,38 +2323,24 @@
 
         function showAnonymizationResults(result, tabId) {
             const resultsStatus = document.getElementById(`resultsStatus-${tabId}`);
-            
-            // Build directory structure display
-            let structureHtml = '';
-            if (result.file_structure) {
-                structureHtml = '<div class="directory-tree"><h5>📂 Preserved Structure:</h5>';
-                Object.keys(result.file_structure).forEach(dir => {
-                    if (dir === 'root') {
-                        structureHtml += '<div class="directory-item">📁 /</div>';
-                    } else {
-                        structureHtml += `<div class="directory-item"><span class="directory-folder">📁 ${dir}/</span></div>`;
-                    }
-                    result.file_structure[dir].forEach(file => {
-                        structureHtml += `<div class="directory-item directory-file">  └─ 🏥 ${file}</div>`;
-                    });
-                });
-                structureHtml += '</div>';
-            }
-            
+
+            // Count directories
+            const dirs = result.file_structure ? Object.keys(result.file_structure) : [];
+            const dirCount = dirs.filter(d => d !== 'root').length;
+            const summary = dirCount > 0
+                ? `${result.count} files across ${dirCount} folder${dirCount > 1 ? 's' : ''}`
+                : `${result.count} files`;
+
+            // Build a compact collapsible file list
+            const fileListId = `anonFileList-${tabId}`;
+            const fileRows = result.files.map(file =>
+                `<div class="file-row"><span>${file.anonymized}</span><span style="color:#28a745;">✅</span></div>`
+            ).join('');
+
             resultsStatus.innerHTML = `
-                <div class="status success">
-                    ✅ Successfully anonymized ${result.count} DICOM files - Download starting automatically...
-                </div>
-                ${structureHtml}
-                <div class="file-list">
-                    <h4>🔒 Anonymized Files:</h4>
-                    ${result.files.map(file => `
-                        <div class="file-item dicom">
-                            <span>🏥 ${file.anonymized}</span>
-                            <span>✅ Anonymized</span>
-                        </div>
-                    `).join('')}
-                </div>
+                <span style="font-size:0.9em;">🔒 ${summary} anonymized — downloading...</span>
+                <button class="anon-results-toggle" onclick="document.getElementById('${fileListId}').classList.toggle('hidden')">Show files</button>
+                <div id="${fileListId}" class="anon-results-files hidden">${fileRows}</div>
             `;
 
             const downloadBtn = document.getElementById(`downloadBtn-${tabId}`);
@@ -2107,10 +2352,9 @@
             // Automatically start download after a short delay
             setTimeout(() => {
                 downloadAnonymizedFiles(tabId);
-                // Update the status message after download starts
-                const statusDiv = resultsStatus.querySelector('.status.success');
-                if (statusDiv) {
-                    statusDiv.innerHTML = '✅ Successfully anonymized ' + result.count + ' DICOM files - Download started!';
+                const span = resultsStatus.querySelector('span');
+                if (span) {
+                    span.textContent = `🔒 ${summary} anonymized — download started!`;
                 }
             }, 1500);
         }

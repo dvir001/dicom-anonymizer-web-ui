@@ -1121,8 +1121,8 @@ def upload_files():
         else:
             # If content_length is missing, we must NOT use stream.seek(0, os.SEEK_END)
             # because that forces Werkzeug to synchronously buffer the entire potentially
-            # massive stream from the network, which blocks the single-threaded Flask
-            # process for minutes on large uploads, causing reverse proxy timeouts.
+            # massive stream from the network, which can block the handling worker/thread
+            # for minutes on large uploads and cause reverse proxy or client timeouts in production.
             pass
 
     if total_upload_size > app.config['MAX_CONTENT_LENGTH']:

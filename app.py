@@ -15,6 +15,7 @@ import logging
 import secrets
 import re
 import posixpath
+import concurrent.futures
 from typing import Optional, List, Set
 from flask import Flask, render_template, request, send_file, jsonify, session, redirect, url_for, flash
 from flask_cors import CORS
@@ -27,6 +28,7 @@ from pydicom import dcmread
 from pydicom.errors import InvalidDicomError
 import json
 import traceback
+import uuid as _uuid_mod
 from urllib.parse import quote
 from functools import wraps
 from dotenv import load_dotenv
@@ -452,23 +454,20 @@ def is_dicom_file(filepath):
     except Exception:
         has_preamble = False
 
-    if has_preamble:
-        return True
+    # Even if a DICOM preamble is present, still perform full parsing and UID-tag
+    # validation below. This avoids misclassifying files that merely contain the
+    # 'DICM' marker at the expected offset.
+    if not has_preamble:
+        # No preamble — only attempt strict read. We explicitly do NOT use
+        # force=True here because if a user uploads a ZIP full of 10,000 JPEGs
+        # or PDFs, force=True will attempt to parse all of them as corrupted
+        # DICOMs, taking hundreds of milliseconds per file.
+        pass  # fall through to the dcmread below
 
-    # Fallback path for files without a DICOM preamble (no 'DICM' marker) or where
-    # the preamble check failed. Try to parse the dataset and then validate that
-    # it looks like a real DICOM by checking for required UID tags.
     ds = None
     try:
-        # First try a strict read; many non-Part 10 but otherwise valid datasets
-        # can still be parsed without force=True.
         ds = dcmread(filepath, stop_before_pixels=True, force=False)
     except Exception:
-        # If strict parsing fails, it's not a valid DICOM. 
-        # We explicitly REMOVED `force=True` fallback here because if a user uploads a ZIP
-        # full of 10,000 JPEGs or PDFs, `force=True` will attempt to parse all of them
-        # as corrupted DICOMs, taking hundreds of milliseconds per file, resulting in 
-        # an infinite server hang.
         return False
 
     if ds is None:
@@ -882,7 +881,7 @@ cleanup_thread.start()
 @app.errorhandler(413)
 def _handle_413(exc):
     logger.error("413 Request Entity Too Large: %s", exc)
-    return jsonify({'error': 'File too large. Maximum upload size per request is 3 GB.'}), 413
+    return jsonify({'error': 'File too large. Maximum upload size is 3 GB.'}), 413
 
 
 @app.route('/health')
@@ -1386,8 +1385,10 @@ def upload_chunk():
     total_chunks_raw = request.form.get('total_chunks', '')
     filename = request.form.get('filename', '')
 
-    # Validate upload_id (UUID v4 format)
-    if not upload_id or not re.match(r'^[a-f0-9\-]{36}$', upload_id):
+    # Validate upload_id as a proper UUID
+    try:
+        _uuid_mod.UUID(upload_id)
+    except (ValueError, AttributeError):
         return jsonify({'error': 'Invalid upload ID'}), 400
 
     try:
@@ -1402,9 +1403,23 @@ def upload_chunk():
     if not filename or not allowed_file(filename):
         return jsonify({'error': 'Invalid filename'}), 400
 
-    # Storage check
+    # Enforce maximum chunk size (aligned with client-side 50MB limit)
+    MAX_CHUNK_SIZE = 55 * 1024 * 1024  # 55MB to allow slight overhead
+    incoming_size = request.content_length
+    if incoming_size is None:
+        try:
+            incoming_size = int(request.headers.get('Content-Length', '0'))
+        except (TypeError, ValueError):
+            incoming_size = 0
+    if incoming_size and incoming_size > MAX_CHUNK_SIZE:
+        return jsonify({'error': 'Chunk size exceeds maximum allowed size'}), 413
+
+    # Storage check — include incoming size to avoid exceeding limit
     current_storage = _get_total_storage_usage()
-    if current_storage > MAX_TOTAL_STORAGE * 0.9:
+    projected_storage = current_storage + (incoming_size or 0)
+    if projected_storage > MAX_TOTAL_STORAGE:
+        return jsonify({'error': 'Server storage limit reached. Please try again later.'}), 507
+    if projected_storage > MAX_TOTAL_STORAGE * 0.9:
         return jsonify({'error': 'Server storage nearly full. Please try again later.'}), 507
 
     chunk_dir = os.path.join(app.config['CHUNK_FOLDER'], upload_id)
@@ -1439,7 +1454,9 @@ def upload_chunk_complete():
     session_id = data.get('session_id', '')
     total_chunks_raw = data.get('total_chunks', 0)
 
-    if not upload_id or not re.match(r'^[a-f0-9\-]{36}$', upload_id):
+    try:
+        _uuid_mod.UUID(upload_id)
+    except (ValueError, AttributeError):
         return jsonify({'error': 'Invalid upload ID'}), 400
 
     try:
@@ -1462,18 +1479,6 @@ def upload_chunk_complete():
     if not os.path.isdir(chunk_dir):
         return jsonify({'error': 'Chunk upload not found'}), 404
 
-    # If an uploader fingerprint was stored for this upload, enforce that only the same
-    # client (based on fingerprint) can complete the upload.
-    uploader_meta_path = os.path.join(chunk_dir, '.uploader')
-    if os.path.isfile(uploader_meta_path):
-        try:
-            with open(uploader_meta_path, 'r', encoding='utf-8') as f:
-                stored_fingerprint = f.read().strip()
-        except OSError:
-            return jsonify({'error': 'Unable to verify upload ownership'}), 500
-
-        if stored_fingerprint != client_fingerprint:
-            return jsonify({'error': 'Not authorized to complete this upload'}), 403
     received = sum(1 for f in os.listdir(chunk_dir) if f.isdigit())
     if received < total_chunks:
         return jsonify({'error': f'Missing chunks: received {received}/{total_chunks}'}), 400
@@ -1539,24 +1544,24 @@ def upload_chunk_complete():
             shutil.rmtree(chunk_dir, ignore_errors=True)
             return jsonify({'error': 'Failed to create target directory'}), 500
 
-        # Deduplicate filename
-        existing_paths = set()
-        for root, _, files_in_dir in os.walk(session_dir):
-            for existing in files_in_dir:
-                rel_existing = os.path.relpath(os.path.join(root, existing), session_dir)
-                existing_paths.add(os.path.normpath(rel_existing))
+        # Deduplicate filename within the target directory
+        try:
+            existing_names = set(os.listdir(target_directory))
+        except FileNotFoundError:
+            existing_names = set()
 
         target_name = sanitized_filename
         base_name, ext = os.path.splitext(target_name)
         suffix = 1
-        rel_candidate = os.path.normpath(os.path.join(rel_dir, target_name)) if rel_dir else os.path.normpath(target_name)
+        filepath_candidate = os.path.join(target_directory, target_name)
 
-        while rel_candidate in existing_paths or os.path.exists(os.path.join(session_dir, rel_candidate)):
+        while target_name in existing_names or os.path.exists(filepath_candidate):
             target_name = f"{base_name}_{suffix}{ext}" if ext else f"{base_name}_{suffix}"
             suffix += 1
-            rel_candidate = os.path.normpath(os.path.join(rel_dir, target_name)) if rel_dir else os.path.normpath(target_name)
+            filepath_candidate = os.path.join(target_directory, target_name)
 
-        filepath = os.path.join(target_directory, target_name)
+        filepath = filepath_candidate
+        rel_candidate = os.path.normpath(os.path.join(rel_dir, target_name)) if rel_dir else os.path.normpath(target_name)
 
         # Path traversal check
         abs_filepath = os.path.abspath(filepath)

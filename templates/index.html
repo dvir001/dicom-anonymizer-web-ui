@@ -1896,7 +1896,11 @@
                         // Upload a large file in chunks
                         const file = task.file;
                         const totalChunks = Math.ceil(file.size / UPLOAD_CHUNK_SIZE);
-                        const uploadId = crypto.randomUUID();
+                        const uploadId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+                            ? crypto.randomUUID()
+                            : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+                                (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16)
+                              );
 
                         for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
                             if (aborted) throw { cancelled: true, message: 'Upload cancelled by user.' };
@@ -2333,8 +2337,13 @@
 
             // Build a compact collapsible file list
             const fileListId = `anonFileList-${tabId}`;
+            const escapeHtml = (str) => {
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            };
             const fileRows = result.files.map(file =>
-                `<div class="file-row"><span>${file.anonymized}</span><span style="color:#28a745;">✅</span></div>`
+                `<div class="file-row"><span>${escapeHtml(file.anonymized)}</span><span style="color:#28a745;">✅</span></div>`
             ).join('');
 
             resultsStatus.innerHTML = `

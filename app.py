@@ -1462,6 +1462,18 @@ def upload_chunk_complete():
     if not os.path.isdir(chunk_dir):
         return jsonify({'error': 'Chunk upload not found'}), 404
 
+    # If an uploader fingerprint was stored for this upload, enforce that only the same
+    # client (based on fingerprint) can complete the upload.
+    uploader_meta_path = os.path.join(chunk_dir, '.uploader')
+    if os.path.isfile(uploader_meta_path):
+        try:
+            with open(uploader_meta_path, 'r', encoding='utf-8') as f:
+                stored_fingerprint = f.read().strip()
+        except OSError:
+            return jsonify({'error': 'Unable to verify upload ownership'}), 500
+
+        if stored_fingerprint != client_fingerprint:
+            return jsonify({'error': 'Not authorized to complete this upload'}), 403
     received = sum(1 for f in os.listdir(chunk_dir) if f.isdigit())
     if received < total_chunks:
         return jsonify({'error': f'Missing chunks: received {received}/{total_chunks}'}), 400

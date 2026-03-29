@@ -2,7 +2,7 @@
 
 > **🌐 Enhanced Fork**: This is a web-enabled fork of the original [KitwareMedical/dicom-anonymizer](https://github.com/KitwareMedical/dicom-anonymizer) that adds a complete Flask web application with authentication, batch processing, and production-ready deployment features.
 
-<img width="1113" height="458" alt="image" src="https://github.com/user-attachments/assets/83627bdb-220c-43e4-bfbb-091fbf7bd25f" />
+<img width="1104" height="482" alt="image" src="https://github.com/user-attachments/assets/016de1b6-bb8f-4721-8053-d01702c99baf" />
 
 ## Features
 

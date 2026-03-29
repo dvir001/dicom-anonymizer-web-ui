@@ -465,10 +465,10 @@ This fork adds significant web-based functionality to the original command-line 
 - **Smart File Handling**: Automatic DICOM file detection with immediate cleanup of non-DICOM uploads
 - **Directory Structure Preservation**: Maintains original folder organization during batch processing
 - **Download Options**: Support for both single file downloads and complete batch ZIP archives
-- **Large File Support**: Increased upload limit to 1GB for handling large medical datasets
+- **Large File Support**: Chunked uploads support files up to 3GB per session for handling large medical datasets
 
 ### ⚙️ Processing Options
-- **Minimal Anonymization Mode**: Optional lightweight anonymization for specific use cases
+- **Two Anonymization Modes**: "Standard" mode for lightweight anonymization (names/IDs only), and "Everything" mode for comprehensive DICOM anonymization following industry standards
 - **Private Tag Handling**: Configurable option to keep or remove private DICOM tags (default: keep)
 - **Flexible Anonymization**: Full integration with existing anonymization rules and custom dictionaries
 

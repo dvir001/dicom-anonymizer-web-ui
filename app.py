@@ -1,6 +1,6 @@
 # Flask DICOM Anonymizer Web Application
 """
-A secure web-based DICOM file anonymizer that provides both minimal and standard anonymization modes.
+A secure web-based DICOM file anonymizer that provides both standard and everything anonymization modes.
 Features include file validation, automatic cleanup, session management, and secure authentication.
 """
 
@@ -1697,7 +1697,7 @@ def upload_chunk_complete():
 @login_required
 def anonymize_files():
     """
-    Anonymize uploaded DICOM files using either minimal or standard mode.
+    Anonymize uploaded DICOM files using either standard or everything mode.
     Preserves directory structure and file organization from upload.
     """
     data = request.get_json()

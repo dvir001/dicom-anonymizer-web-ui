@@ -872,8 +872,8 @@
                 <ul>
                     <li><strong>Two Anonymization Modes:</strong>
                         <ul>
-                            <li>Minimal - Only removes patient names, IDs, and study IDs</li>
-                            <li>Standard - Comprehensive DICOM anonymization following industry standards</li>
+                            <li>Standard - Only removes patient names, IDs, and study IDs</li>
+                            <li>Everything - Comprehensive DICOM anonymization following industry standards</li>
                         </ul>
                     </li>
                     <li><strong>File Support:</strong> Accepts any file type (up to 3GB per session) - DICOM files are automatically detected by content</li>
@@ -929,16 +929,17 @@
                 <div id="fileList-tab-1" class="hidden"></div>
                 <div id="uploadStatus-tab-1" class="hidden"></div>
 
-                <div id="optionsCard-tab-1" class="hidden" style="margin-top: 6px; padding: 10px 14px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
+                <div id="optionsCard-tab-1" style="margin-top: 6px; padding: 10px 14px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
                     <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px;">
                         <strong style="font-size: 0.92em;">⚙️ Mode:</strong>
-                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="minimalMode-tab-1" name="anonymizationMode-tab-1" value="minimal" checked> Minimal</label>
-                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="standardMode-tab-1" name="anonymizationMode-tab-1" value="standard"> Standard</label>
+                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="minimalMode-tab-1" name="anonymizationMode-tab-1" value="minimal" checked> Standard</label>
+                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="standardMode-tab-1" name="anonymizationMode-tab-1" value="standard"> Everything</label>
                         <div id="standardOptions-tab-1" style="display: none;">
                             <label style="font-size: 0.88em;"><input type="checkbox" id="keepPrivateTags-tab-1" checked> Keep private tags</label>
                         </div>
+                        <label style="font-size: 0.88em; cursor: pointer; margin-left: 8px;"><input type="checkbox" id="autoRun-tab-1" checked> Auto run on upload</label>
                         <div style="margin-left: auto; display: flex; gap: 8px;">
-                            <button id="anonymizeBtn-tab-1" class="btn" style="padding: 8px 16px; margin: 0; font-size: 0.88em;" onclick="startAnonymization('tab-1')">🔒 Anonymize</button>
+                            <button id="anonymizeBtn-tab-1" class="btn hidden" style="padding: 8px 16px; margin: 0; font-size: 0.88em;" onclick="startAnonymization('tab-1')">🔒 Anonymize</button>
                         </div>
                     </div>
                 </div>
@@ -1194,16 +1195,17 @@
                 <div id="fileList-${tabId}" class="hidden"></div>
                 <div id="uploadStatus-${tabId}" class="hidden"></div>
 
-                <div id="optionsCard-${tabId}" class="hidden" style="margin-top: 6px; padding: 10px 14px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
+                <div id="optionsCard-${tabId}" style="margin-top: 6px; padding: 10px 14px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
                     <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px;">
                         <strong style="font-size: 0.92em;">⚙️ Mode:</strong>
-                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="minimalMode-${tabId}" name="anonymizationMode-${tabId}" value="minimal" checked> Minimal</label>
-                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="standardMode-${tabId}" name="anonymizationMode-${tabId}" value="standard"> Standard</label>
+                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="minimalMode-${tabId}" name="anonymizationMode-${tabId}" value="minimal" checked> Standard</label>
+                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="standardMode-${tabId}" name="anonymizationMode-${tabId}" value="standard"> Everything</label>
                         <div id="standardOptions-${tabId}" style="display: none;">
                             <label style="font-size: 0.88em;"><input type="checkbox" id="keepPrivateTags-${tabId}" checked> Keep private tags</label>
                         </div>
+                        <label style="font-size: 0.88em; cursor: pointer; margin-left: 8px;"><input type="checkbox" id="autoRun-${tabId}" checked> Auto run on upload</label>
                         <div style="margin-left: auto; display: flex; gap: 8px;">
-                            <button id="anonymizeBtn-${tabId}" class="btn" style="padding: 8px 16px; margin: 0; font-size: 0.88em;" onclick="startAnonymization('${tabId}')">🔒 Anonymize</button>
+                            <button id="anonymizeBtn-${tabId}" class="btn hidden" style="padding: 8px 16px; margin: 0; font-size: 0.88em;" onclick="startAnonymization('${tabId}')">🔒 Anonymize</button>
                         </div>
                     </div>
                 </div>
@@ -1317,20 +1319,22 @@
             if (fileList) fileList.classList.add('hidden');
             if (uploadStatus) uploadStatus.classList.add('hidden');
             if (uploadProgress) uploadProgress.classList.add('hidden');
-            if (optionsCard) optionsCard.classList.add('hidden');
             if (resultsCard) resultsCard.classList.add('hidden');
             
+            // Keep optionsCard visible but hide the anonymize button
+            if (optionsCard) optionsCard.classList.remove('hidden');
+            const anonymizeBtn = tabContent.querySelector(`#anonymizeBtn-${tabId}`);
+            if (anonymizeBtn) {
+                anonymizeBtn.classList.add('hidden');
+                anonymizeBtn.disabled = false;
+                anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
+            }
+
             // Enable upload area
             const uploadArea = tabContent.querySelector(`#uploadArea-${tabId}`);
             if (uploadArea) {
                 uploadArea.classList.remove('disabled');
-            }
-            
-            // Reset anonymize button state
-            const anonymizeBtn = tabContent.querySelector(`#anonymizeBtn-${tabId}`);
-            if (anonymizeBtn) {
-                anonymizeBtn.disabled = false;
-                anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
+                uploadArea.classList.remove('compact');
             }
             
             // Clear file inputs
@@ -1417,6 +1421,18 @@
             const uploadArea = document.getElementById(`uploadArea-${tabId}`);
             if (!uploadArea) {
                 return;
+            }
+
+            // Restore auto-run checkbox state from localStorage
+            const autoRunCheckbox = document.getElementById(`autoRun-${tabId}`);
+            if (autoRunCheckbox) {
+                const saved = localStorage.getItem('autoRunOnUpload');
+                if (saved !== null) {
+                    autoRunCheckbox.checked = saved === 'true';
+                }
+                autoRunCheckbox.addEventListener('change', () => {
+                    localStorage.setItem('autoRunOnUpload', autoRunCheckbox.checked);
+                });
             }
 
             // Remove old listeners by cloning the upload area (including controls)
@@ -1747,7 +1763,8 @@
             };
 
             // Helper: send an XHR request with progress tracking
-            function sendXhr(formData, url) {
+            // showServerWait: only show "Processing files on server..." when true (use for the final request only)
+            function sendXhr(formData, url, showServerWait = false) {
                 return new Promise((resolve, reject) => {
                     if (aborted) { reject({ cancelled: true, message: 'Upload cancelled by user.' }); return; }
 
@@ -1769,13 +1786,15 @@
                     });
 
                     xhr.upload.addEventListener('load', () => {
-                        const serverStart = Date.now();
-                        const serverTimer = setInterval(() => {
-                            const elapsed = Math.round((Date.now() - serverStart) / 1000);
-                            showProgressState(99, `Processing files on server... (${elapsed}s)`, true);
-                        }, 1000);
-                        xhr._serverTimer = serverTimer;
-                        showProgressState(99, 'Processing files on server...', true);
+                        if (showServerWait) {
+                            const serverStart = Date.now();
+                            const serverTimer = setInterval(() => {
+                                const elapsed = Math.round((Date.now() - serverStart) / 1000);
+                                showProgressState(99, `Processing files on server... (${elapsed}s)`, true);
+                            }, 1000);
+                            xhr._serverTimer = serverTimer;
+                            showProgressState(99, 'Processing files on server...', true);
+                        }
                     });
 
                     xhr.addEventListener('error', () => { clearInterval(xhr._serverTimer); reject(new Error('Network error during upload.')); });
@@ -1876,7 +1895,8 @@
                             formData.append('session_id', state.sessionId);
                         }
 
-                        const outcome = await sendXhr(formData, '/upload');
+                        const isLastTask = (taskIndex === tasks.length - 1);
+                        const outcome = await sendXhr(formData, '/upload', isLastTask);
                         if (outcome.unauthorized) { uploadOutcome = { unauthorized: true }; break; }
 
                         const result = outcome.data;
@@ -2025,9 +2045,14 @@
 
                 if (state.totalDicomCount > 0) {
                     showStatus(`✅ Batch contains ${state.totalDicomCount} DICOM files. You can add more or start processing.`, 'success', tabId);
-                    const optionsCard = document.getElementById(`optionsCard-${tabId}`);
-                    if (optionsCard) {
-                        optionsCard.classList.remove('hidden');
+                    // Show the Anonymize button now that we have files
+                    const anonBtn = document.getElementById(`anonymizeBtn-${tabId}`);
+                    if (anonBtn) anonBtn.classList.remove('hidden');
+
+                    // Auto-run anonymization if checkbox is checked
+                    const autoRunCheckbox = document.getElementById(`autoRun-${tabId}`);
+                    if (autoRunCheckbox && autoRunCheckbox.checked) {
+                        startAnonymization(tabId);
                     }
                 } else {
                     showStatus('⚠️ No DICOM files detected in batch. Please add DICOM files.', 'warning', tabId);
@@ -2347,7 +2372,7 @@
             ).join('');
 
             resultsStatus.innerHTML = `
-                <span style="font-size:0.9em;">🔒 ${summary} anonymized — downloading...</span>
+                <span style="font-size:0.9em;">🔒 ${summary} anonymized</span>
                 <button class="anon-results-toggle" onclick="document.getElementById('${fileListId}').classList.toggle('hidden')">Show files</button>
                 <div id="${fileListId}" class="anon-results-files hidden">${fileRows}</div>
             `;
@@ -2358,14 +2383,17 @@
             document.getElementById(`optionsCard-${tabId}`).classList.add('hidden');
             document.getElementById(`resultsCard-${tabId}`).classList.remove('hidden');
 
-            // Automatically start download after a short delay
-            setTimeout(() => {
-                downloadAnonymizedFiles(tabId);
-                const span = resultsStatus.querySelector('span');
-                if (span) {
-                    span.textContent = `🔒 ${summary} anonymized — download started!`;
-                }
-            }, 1500);
+            // Auto-download if auto-run is enabled
+            const autoRunCheckbox = document.getElementById(`autoRun-${tabId}`);
+            if (autoRunCheckbox && autoRunCheckbox.checked) {
+                setTimeout(() => {
+                    downloadAnonymizedFiles(tabId);
+                    const span = resultsStatus.querySelector('span');
+                    if (span) {
+                        span.textContent = `🔒 ${summary} anonymized — download started!`;
+                    }
+                }, 1000);
+            }
         }
 
         function downloadAnonymizedFiles(tabId) {
@@ -2411,13 +2439,17 @@
                 folderInput.value = '';
             }
             
-            // Hide all sections
+            // Hide all sections except optionsCard
             document.getElementById(`batchInfo-${tabId}`).classList.add('hidden');
             document.getElementById(`fileList-${tabId}`).classList.add('hidden');
-            document.getElementById(`optionsCard-${tabId}`).classList.add('hidden');
             document.getElementById(`resultsCard-${tabId}`).classList.add('hidden');
             document.getElementById(`uploadStatus-${tabId}`).classList.add('hidden');
             document.getElementById(`uploadProgress-${tabId}`).classList.add('hidden');
+
+            // Keep optionsCard visible, hide anonymize button
+            document.getElementById(`optionsCard-${tabId}`).classList.remove('hidden');
+            const anonBtnReset = document.getElementById(`anonymizeBtn-${tabId}`);
+            if (anonBtnReset) anonBtnReset.classList.add('hidden');
 
             // Restore upload area to full mode
             const uploadArea = document.getElementById(`uploadArea-${tabId}`);

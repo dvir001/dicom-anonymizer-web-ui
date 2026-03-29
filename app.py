@@ -882,7 +882,7 @@ cleanup_thread.start()
 @app.errorhandler(413)
 def _handle_413(exc):
     logger.error("413 Request Entity Too Large: %s", exc)
-    return jsonify({'error': 'File too large. Maximum upload size is 3 GB.'}), 413
+    return jsonify({'error': 'File too large. Maximum upload size per request is 3 GB.'}), 413
 
 
 @app.route('/health')

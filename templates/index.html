@@ -21,7 +21,7 @@
             max-width: 1200px;
             margin: 0 auto;
             background: white;
-            padding: 30px;
+            padding: 20px;
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
         }
@@ -34,18 +34,37 @@
 
         .top-bar {
             display: flex;
-            justify-content: flex-end;
             align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
+            gap: 12px;
+            margin-bottom: 12px;
+            padding: 10px 16px;
+            background: linear-gradient(135deg, #e3f2fd, #f3e5f5);
+            border: 1px solid #bbdefb;
+            border-radius: 10px;
         }
 
-        .session-status {
-            font-size: 0.95em;
-            color: #0c5460;
-            background: #d1ecf1;
-            padding: 6px 12px;
-            border-radius: 20px;
+        .top-bar h1 {
+            margin: 0;
+            font-size: 1.3em;
+            font-weight: 400;
+            color: #333;
+            white-space: nowrap;
+        }
+
+        .top-bar .banner-text {
+            flex: 1;
+            margin: 0;
+            color: #1976d2;
+            font-size: 0.88em;
+            font-weight: 500;
+        }
+
+        .top-bar .top-bar-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-left: auto;
+            flex-shrink: 0;
         }
 
         .login-overlay {
@@ -137,8 +156,8 @@
         h1 {
             text-align: center;
             color: #333;
-            margin-bottom: 30px;
-            font-size: 2.2em;
+            margin-bottom: 15px;
+            font-size: 1.6em;
             font-weight: 300;
         }
 
@@ -220,31 +239,60 @@
             background: #e8f4f8;
             border: 1px solid #bee5eb;
             border-radius: 8px;
-            padding: 15px;
-            margin: 15px 0;
+            padding: 6px 12px;
+            margin: 8px 0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.88em;
         }
 
         .batch-info h4 {
-            margin-top: 0;
+            margin: 0;
             color: #0c5460;
+            font-size: 1em;
+            white-space: nowrap;
+        }
+
+        .batch-info .batch-stat {
+            color: #0c5460;
+            white-space: nowrap;
         }
 
         .batch-files-list {
-            max-height: 200px;
-            overflow-y: auto;
-            margin: 10px 0;
+            display: none;
         }
 
         .upload-area {
             border: 3px dashed #ddd;
-            padding: 60px 20px;
+            padding: 25px 20px;
             text-align: center;
-            margin: 30px 0;
+            margin: 10px 0;
             cursor: pointer;
             border-radius: 10px;
             transition: all 0.3s ease;
             position: relative;
             background: #fafafa;
+        }
+
+        .upload-area.compact {
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            border-width: 2px;
+            margin: 6px 0;
+        }
+
+        .upload-area.compact .upload-icon,
+        .upload-area.compact h3,
+        .upload-area.compact > p {
+            display: none;
+        }
+
+        .upload-area.compact .upload-controls {
+            margin-top: 0;
         }
 
         .upload-area.disabled {
@@ -272,13 +320,13 @@
             gap: 10px;
             justify-content: center;
             flex-wrap: wrap;
-            margin-top: 15px;
+            margin-top: 10px;
         }
 
         .upload-icon {
-            font-size: 3em;
+            font-size: 2em;
             color: #007bff;
-            margin-bottom: 15px;
+            margin-bottom: 5px;
             display: block;
         }
 
@@ -324,35 +372,35 @@
         }
 
         .file-item {
-            padding: 15px;
+            padding: 4px 10px;
             background: #f8f9fa;
-            margin: 8px 0;
-            border-radius: 8px;
+            margin: 2px 0;
+            border-radius: 4px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            transition: all 0.2s ease;
+            font-size: 0.82em;
+            line-height: 1.3;
         }
 
         .file-item:hover {
             background: #e9ecef;
-            transform: translateX(5px);
         }
 
         .file-item.dicom {
-            border-left: 4px solid #28a745;
-            background: linear-gradient(90deg, #d4edda, #f8f9fa);
+            border-left: 3px solid #28a745;
+            background: #f0f9f2;
         }
 
         .file-item.non-dicom {
-            border-left: 4px solid #ffc107;
-            background: linear-gradient(90deg, #fff3cd, #f8f9fa);
+            border-left: 3px solid #ffc107;
+            background: #fffdf0;
         }
 
         .badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8em;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.72em;
             font-weight: 500;
         }
 
@@ -367,11 +415,12 @@
         }
 
         .status {
-            padding: 15px 20px;
-            margin: 15px 0;
+            padding: 8px 12px;
+            margin: 6px 0;
             border-radius: 8px;
             border-left: 4px solid;
             font-weight: 500;
+            font-size: 0.9em;
         }
 
         .status.success {
@@ -396,24 +445,6 @@
             background: #fff3cd;
             color: #856404;
             border-left-color: #ffc107;
-        }
-
-        .info-banner {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 15px;
-            background: linear-gradient(135deg, #e3f2fd, #f3e5f5);
-            border: 1px solid #bbdefb;
-            border-radius: 10px;
-            padding: 16px 20px;
-            margin: 20px 0;
-        }
-
-        .info-banner p {
-            margin: 0;
-            color: #1976d2;
-            font-weight: 500;
         }
 
         .info-modal {
@@ -459,9 +490,10 @@
         }
 
         .file-list-scroll {
-            max-height: 320px;
+            max-height: 30vh;
+            min-height: 40px;
             overflow-y: auto;
-            margin-top: 10px;
+            margin-top: 5px;
             padding-right: 8px;
         }
 
@@ -485,19 +517,105 @@
         .card {
             background: #f8f9fa;
             border-radius: 10px;
-            padding: 25px;
-            margin: 20px 0;
+            padding: 15px;
+            margin: 12px 0;
             border: 1px solid #e9ecef;
         }
 
         .cleanup-info {
-            font-size: 0.9em;
+            font-size: 0.85em;
             color: #666;
-            margin-top: 15px;
-            padding: 15px;
+            margin-top: 8px;
+            padding: 8px 12px;
             background: #f1f3f4;
             border-radius: 8px;
             border-left: 4px solid #17a2b8;
+        }
+
+        .non-dicom-notice {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-left: 4px solid #e0a800;
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin: 6px 0;
+            position: relative;
+            animation: fadeInNotice 0.3s ease;
+            font-size: 0.88em;
+        }
+
+        .non-dicom-notice .notice-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .non-dicom-notice .notice-header strong {
+            color: #856404;
+            font-size: 0.92em;
+        }
+
+        .non-dicom-notice .notice-toggle {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 0.8em;
+            color: #856404;
+            padding: 0 4px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .non-dicom-notice .notice-toggle:hover {
+            opacity: 1;
+        }
+
+        .non-dicom-notice .notice-dismiss {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1.2em;
+            color: #856404;
+            padding: 0 4px;
+            line-height: 1;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .non-dicom-notice .notice-dismiss:hover {
+            opacity: 1;
+        }
+
+        .non-dicom-notice .notice-body {
+            display: none;
+            margin-top: 4px;
+        }
+
+        .non-dicom-notice .notice-body.expanded {
+            display: block;
+        }
+
+        .non-dicom-notice .notice-file-list {
+            list-style: none;
+            padding: 0;
+            margin: 4px 0 0 0;
+            font-size: 0.85em;
+            color: #664d03;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+
+        .non-dicom-notice .notice-file-list li {
+            padding: 1px 0;
+        }
+
+        .non-dicom-notice .notice-file-list li::before {
+            content: '🗑️ ';
+        }
+
+        @keyframes fadeInNotice {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .progress-bar {
@@ -558,7 +676,7 @@
             gap: 10px;
             flex-wrap: wrap;
             justify-content: center;
-            margin: 20px 0;
+            margin: 8px 0;
         }
 
         .radio-group {
@@ -612,16 +730,24 @@
         .directory-tree {
             background: #f8f9fa;
             border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 15px 0;
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin: 6px 0;
             font-family: 'Courier New', monospace;
+            font-size: 0.8em;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .directory-tree h5 {
+            margin: 0 0 4px 0;
             font-size: 0.9em;
         }
 
         .directory-item {
-            margin: 5px 0;
-            padding-left: 20px;
+            margin: 1px 0;
+            padding-left: 12px;
+            line-height: 1.4;
         }
 
         .directory-folder {
@@ -633,6 +759,47 @@
             color: #333;
         }
 
+        /* Anonymization results - compact collapsible file list */
+        .anon-results-files {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #c3e6cb;
+            border-radius: 6px;
+            margin-top: 6px;
+            background: #fff;
+        }
+
+        .anon-results-files .file-row {
+            padding: 3px 10px;
+            font-size: 0.8em;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .anon-results-files .file-row:last-child {
+            border-bottom: none;
+        }
+
+        .anon-results-files .file-row:nth-child(even) {
+            background: #f8fdf9;
+        }
+
+        .anon-results-toggle {
+            background: none;
+            border: 1px solid #c3e6cb;
+            border-radius: 4px;
+            padding: 3px 10px;
+            font-size: 0.82em;
+            cursor: pointer;
+            color: #155724;
+        }
+
+        .anon-results-toggle:hover {
+            background: #d4edda;
+        }
+
         @media (max-width: 768px) {
             .container {
                 margin: 10px;
@@ -640,7 +807,7 @@
             }
             
             .upload-area {
-                padding: 40px 15px;
+                padding: 20px 15px;
             }
             
             .button-group {
@@ -652,13 +819,16 @@
                 margin: 5px 0;
             }
 
-            .info-banner {
-                flex-direction: column;
-                align-items: flex-start;
+            .top-bar {
+                flex-wrap: wrap;
             }
 
-            .info-banner .btn {
-                width: auto;
+            .top-bar h1 {
+                font-size: 1.1em;
+            }
+
+            .top-bar .banner-text {
+                display: none;
             }
         }
     </style>
@@ -687,14 +857,12 @@
 
     <div id="appContainer" class="container{% if not is_authenticated %} locked{% endif %}">
         <div class="top-bar">
-            <span id="sessionStatus" class="session-status{% if not is_authenticated %} hidden{% endif %}">🔓 {% if user_display_name %}{{ user_display_name }}{% else %}Session active{% endif %}</span>
-            <button id="logoutButton" type="button" class="btn secondary{% if not is_authenticated %} hidden{% endif %}">🚪 Logout</button>
-        </div>
-        <h1>🏥 DICOM Anonymizer - Batch Processing</h1>
-
-        <div class="info-banner">
-            <p>Secure DICOM anonymization with batch uploads, ZIP extraction, and folder preservation.</p>
-            <button type="button" class="btn secondary" id="aboutButton">ℹ️ About</button>
+            <h1>🏥 DICOM Anonymizer</h1>
+            <p class="banner-text">Secure batch anonymization with ZIP extraction and folder preservation.</p>
+            <div class="top-bar-actions">
+                <button type="button" class="btn secondary" id="aboutButton">ℹ️ About</button>
+                <button id="logoutButton" type="button" class="btn secondary{% if not is_authenticated %} hidden{% endif %}">🚪 Logout</button>
+            </div>
         </div>
 
         <div id="aboutModal" class="info-modal hidden">
@@ -704,8 +872,8 @@
                 <ul>
                     <li><strong>Two Anonymization Modes:</strong>
                         <ul>
-                            <li>Minimal - Only removes patient names, IDs, and study IDs</li>
-                            <li>Standard - Comprehensive DICOM anonymization following industry standards</li>
+                            <li>Standard - Only removes patient names, IDs, and study IDs</li>
+                            <li>Everything - Comprehensive DICOM anonymization following industry standards</li>
                         </ul>
                     </li>
                     <li><strong>File Support:</strong> Accepts any file type (up to 3GB per session) - DICOM files are automatically detected by content</li>
@@ -738,9 +906,8 @@
 
                 <div class="upload-area" id="uploadArea-tab-1">
                     <div class="upload-icon">📁</div>
-                    <h3>📤 Upload Files to Batch</h3>
-                    <p>Click to select files, drag and drop, or choose a folder</p>
-                    <p><small>You can add more files before starting anonymization</small></p>
+                    <h3 style="margin: 5px 0">📤 Upload Files to Batch</h3>
+                    <p style="margin: 5px 0">Click to select files, drag and drop, or choose a folder</p>
                     <div class="upload-controls">
                         <button type="button" class="btn secondary" id="selectFiles-tab-1">📁 Select Files</button>
                         <button type="button" class="btn secondary" id="selectFolder-tab-1">📂 Select Folder</button>
@@ -762,45 +929,29 @@
                 <div id="fileList-tab-1" class="hidden"></div>
                 <div id="uploadStatus-tab-1" class="hidden"></div>
 
-                <div id="optionsCard-tab-1" class="hidden">
-                    <h3>⚙️ Anonymization Options</h3>
-                    
-                    <h4>🛡️ Anonymization Mode</h4>
-                    <div style="margin: 15px 0;">
-                        <div style="margin: 10px 0;">
-                            <input type="radio" id="minimalMode-tab-1" name="anonymizationMode-tab-1" value="minimal" checked>
-                            <label for="minimalMode-tab-1">Custom Minimal Anonymization</label>
-                            <br><small>Only anonymizes names, Patient ID, and Study ID</small>
+                <div id="optionsCard-tab-1" style="margin-top: 6px; padding: 10px 14px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
+                    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px;">
+                        <strong style="font-size: 0.92em;">⚙️ Mode:</strong>
+                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="minimalMode-tab-1" name="anonymizationMode-tab-1" value="minimal" checked> Standard</label>
+                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="standardMode-tab-1" name="anonymizationMode-tab-1" value="standard"> Everything</label>
+                        <div id="standardOptions-tab-1" style="display: none;">
+                            <label style="font-size: 0.88em;"><input type="checkbox" id="keepPrivateTags-tab-1" checked> Keep private tags</label>
                         </div>
-                        
-                        <div style="margin: 10px 0;">
-                            <input type="radio" id="standardMode-tab-1" name="anonymizationMode-tab-1" value="standard">
-                            <label for="standardMode-tab-1">Standard Full Anonymization</label>
-                            <br><small>Applies comprehensive DICOM anonymization rules</small>
+                        <label style="font-size: 0.88em; cursor: pointer; margin-left: 8px;"><input type="checkbox" id="autoRun-tab-1" checked> Auto run on upload</label>
+                        <div style="margin-left: auto; display: flex; gap: 8px;">
+                            <button id="anonymizeBtn-tab-1" class="btn hidden" style="padding: 8px 16px; margin: 0; font-size: 0.88em;" onclick="startAnonymization('tab-1')">🔒 Anonymize</button>
                         </div>
-                    </div>
-
-                    <div id="standardOptions-tab-1" style="display: none;">
-                        <label>
-                            <input type="checkbox" id="keepPrivateTags-tab-1" checked> Keep private DICOM tags
-                        </label>
-                        <p><small>Private tags will be preserved. Uncheck to remove private tags for maximum anonymization</small></p>
-                    </div>
-
-                    <div class="button-group">
-                        <button id="addMoreBtn-tab-1" class="btn warning" onclick="enableUploadForTab('tab-1')">📁 Add More Files</button>
-                        <button id="anonymizeBtn-tab-1" class="btn" onclick="startAnonymization('tab-1')">🔒 Start Anonymization</button>
                     </div>
                 </div>
 
-                <div id="resultsCard-tab-1" class="hidden">
-                    <h3>✅ Anonymization Complete</h3>
-                    <div id="resultsStatus-tab-1"></div>
-                    <button id="downloadBtn-tab-1" class="btn">📥 Download Anonymized Files</button>
-                    <button class="btn" onclick="startOver('tab-1')">🔄 Start New Batch</button>
-
-                    <div class="cleanup-info">
-                        <p><strong>Note:</strong> Files will be automatically deleted from the server after 30 minutes or when you logout for security.</p>
+                <div id="resultsCard-tab-1" class="hidden" style="padding: 10px 14px; background: #d4edda; border-radius: 8px; border: 1px solid #c3e6cb; margin-top: 6px;">
+                    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <strong>✅ Anonymization Complete</strong>
+                        <div id="resultsStatus-tab-1" style="font-size: 0.9em;"></div>
+                        <div style="margin-left: auto; display: flex; gap: 8px;">
+                            <button id="downloadBtn-tab-1" class="btn" style="padding: 8px 16px; margin: 0; font-size: 0.88em;">📥 Download</button>
+                            <button class="btn secondary" style="padding: 8px 16px; margin: 0; font-size: 0.88em;" onclick="startOver('tab-1')">🔄 New Batch</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -827,7 +978,7 @@
         const loginButton = document.getElementById('loginButton');
         const loginError = document.getElementById('loginError');
         const logoutButton = document.getElementById('logoutButton');
-        const sessionStatus = document.getElementById('sessionStatus');
+
     const aboutButton = document.getElementById('aboutButton');
     const aboutModal = document.getElementById('aboutModal');
     const aboutCloseButton = document.getElementById('aboutCloseButton');
@@ -850,16 +1001,9 @@
         let activeTab = 'tab-1';
         let tabCounter = 1;
 
-        function updateSessionUI(isAuthenticated) {
-            if (sessionStatus) {
-                if (isAuthenticated) {
-                    sessionStatus.classList.remove('hidden');
-                    sessionStatus.textContent = '🔓 Session active';
-                } else {
-                    sessionStatus.classList.add('hidden');
-                }
-            }
+        const ANONYMIZE_BTN_LABEL = '🔒 Anonymize';
 
+        function updateSessionUI(isAuthenticated) {
             if (logoutButton) {
                 logoutButton.classList.toggle('hidden', !isAuthenticated);
                 logoutButton.disabled = false;
@@ -1028,9 +1172,8 @@
 
                 <div class="upload-area" id="uploadArea-${tabId}">
                     <div class="upload-icon">📁</div>
-                    <h3>📤 Upload Files to Batch</h3>
-                    <p>Click to select files, drag and drop, or choose a folder</p>
-                    <p><small>You can add more files before starting anonymization</small></p>
+                    <h3 style="margin: 5px 0">📤 Upload Files to Batch</h3>
+                    <p style="margin: 5px 0">Click to select files, drag and drop, or choose a folder</p>
                     <div class="upload-controls">
                         <button type="button" class="btn secondary" id="selectFiles-${tabId}">📁 Select Files</button>
                         <button type="button" class="btn secondary" id="selectFolder-${tabId}">📂 Select Folder</button>
@@ -1052,45 +1195,29 @@
                 <div id="fileList-${tabId}" class="hidden"></div>
                 <div id="uploadStatus-${tabId}" class="hidden"></div>
 
-                <div id="optionsCard-${tabId}" class="hidden">
-                    <h3>⚙️ Anonymization Options</h3>
-                    
-                    <h4>🛡️ Anonymization Mode</h4>
-                    <div style="margin: 15px 0;">
-                        <div style="margin: 10px 0;">
-                            <input type="radio" id="minimalMode-${tabId}" name="anonymizationMode-${tabId}" value="minimal" checked>
-                            <label for="minimalMode-${tabId}">Custom Minimal Anonymization</label>
-                            <br><small>Only anonymizes names, Patient ID, and Study ID</small>
+                <div id="optionsCard-${tabId}" style="margin-top: 6px; padding: 10px 14px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
+                    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px;">
+                        <strong style="font-size: 0.92em;">⚙️ Mode:</strong>
+                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="minimalMode-${tabId}" name="anonymizationMode-${tabId}" value="minimal" checked> Standard</label>
+                        <label style="font-size: 0.9em; cursor: pointer;"><input type="radio" id="standardMode-${tabId}" name="anonymizationMode-${tabId}" value="standard"> Everything</label>
+                        <div id="standardOptions-${tabId}" style="display: none;">
+                            <label style="font-size: 0.88em;"><input type="checkbox" id="keepPrivateTags-${tabId}" checked> Keep private tags</label>
                         </div>
-                        
-                        <div style="margin: 10px 0;">
-                            <input type="radio" id="standardMode-${tabId}" name="anonymizationMode-${tabId}" value="standard">
-                            <label for="standardMode-${tabId}">Standard Full Anonymization</label>
-                            <br><small>Applies comprehensive DICOM anonymization rules</small>
+                        <label style="font-size: 0.88em; cursor: pointer; margin-left: 8px;"><input type="checkbox" id="autoRun-${tabId}" checked> Auto run on upload</label>
+                        <div style="margin-left: auto; display: flex; gap: 8px;">
+                            <button id="anonymizeBtn-${tabId}" class="btn hidden" style="padding: 8px 16px; margin: 0; font-size: 0.88em;" onclick="startAnonymization('${tabId}')">🔒 Anonymize</button>
                         </div>
-                    </div>
-
-                    <div id="standardOptions-${tabId}" style="display: none;">
-                        <label>
-                            <input type="checkbox" id="keepPrivateTags-${tabId}" checked> Keep private DICOM tags
-                        </label>
-                        <p><small>Private tags will be preserved. Uncheck to remove private tags for maximum anonymization</small></p>
-                    </div>
-
-                    <div class="button-group">
-                        <button id="addMoreBtn-${tabId}" class="btn warning" onclick="enableUploadForTab('${tabId}')">📁 Add More Files</button>
-                        <button id="anonymizeBtn-${tabId}" class="btn" onclick="startAnonymization('${tabId}')">🔒 Start Anonymization</button>
                     </div>
                 </div>
 
-                <div id="resultsCard-${tabId}" class="hidden">
-                    <h3>✅ Anonymization Complete</h3>
-                    <div id="resultsStatus-${tabId}"></div>
-                    <button id="downloadBtn-${tabId}" class="btn">📥 Download Anonymized Files</button>
-                    <button class="btn" onclick="startOver('${tabId}')">🔄 Start New Batch</button>
-
-                    <div class="cleanup-info">
-                        <p><strong>Note:</strong> Files will be automatically deleted from the server after 30 minutes or when you logout for security.</p>
+                <div id="resultsCard-${tabId}" class="hidden" style="padding: 10px 14px; background: #d4edda; border-radius: 8px; border: 1px solid #c3e6cb; margin-top: 6px;">
+                    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <strong>✅ Anonymization Complete</strong>
+                        <div id="resultsStatus-${tabId}" style="font-size: 0.9em;"></div>
+                        <div style="margin-left: auto; display: flex; gap: 8px;">
+                            <button id="downloadBtn-${tabId}" class="btn" style="padding: 8px 16px; margin: 0; font-size: 0.88em;">📥 Download</button>
+                            <button class="btn secondary" style="padding: 8px 16px; margin: 0; font-size: 0.88em;" onclick="startOver('${tabId}')">🔄 New Batch</button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1192,20 +1319,22 @@
             if (fileList) fileList.classList.add('hidden');
             if (uploadStatus) uploadStatus.classList.add('hidden');
             if (uploadProgress) uploadProgress.classList.add('hidden');
-            if (optionsCard) optionsCard.classList.add('hidden');
             if (resultsCard) resultsCard.classList.add('hidden');
             
+            // Keep optionsCard visible but hide the anonymize button
+            if (optionsCard) optionsCard.classList.remove('hidden');
+            const anonymizeBtn = tabContent.querySelector(`#anonymizeBtn-${tabId}`);
+            if (anonymizeBtn) {
+                anonymizeBtn.classList.add('hidden');
+                anonymizeBtn.disabled = false;
+                anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
+            }
+
             // Enable upload area
             const uploadArea = tabContent.querySelector(`#uploadArea-${tabId}`);
             if (uploadArea) {
                 uploadArea.classList.remove('disabled');
-            }
-            
-            // Reset anonymize button state
-            const anonymizeBtn = tabContent.querySelector(`#anonymizeBtn-${tabId}`);
-            if (anonymizeBtn) {
-                anonymizeBtn.disabled = false;
-                anonymizeBtn.textContent = '🔒 Start Anonymization';
+                uploadArea.classList.remove('compact');
             }
             
             // Clear file inputs
@@ -1292,6 +1421,18 @@
             const uploadArea = document.getElementById(`uploadArea-${tabId}`);
             if (!uploadArea) {
                 return;
+            }
+
+            // Restore auto-run checkbox state from localStorage
+            const autoRunCheckbox = document.getElementById(`autoRun-${tabId}`);
+            if (autoRunCheckbox) {
+                const saved = localStorage.getItem('autoRunOnUpload');
+                if (saved !== null) {
+                    autoRunCheckbox.checked = saved === 'true';
+                }
+                autoRunCheckbox.addEventListener('change', () => {
+                    localStorage.setItem('autoRunOnUpload', autoRunCheckbox.checked);
+                });
             }
 
             // Remove old listeners by cloning the upload area (including controls)
@@ -1485,6 +1626,8 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
+        const UPLOAD_CHUNK_SIZE = 50 * 1024 * 1024; // 50MB per HTTP request (under Cloudflare 100MB limit)
+
         async function uploadFiles(files = [], tabId) {
             if (files.length === 0) return;
 
@@ -1545,56 +1688,124 @@
                 }, 800);
             };
 
-            showProgressState(5, 'Preparing upload...');
+            showProgressState(2, 'Preparing upload...');
 
-            const formData = new FormData();
-            files.forEach(file => {
-                formData.append('files', file);
-                const relPath = file.webkitRelativePath || file.relativePath || '';
-                formData.append('relative_paths', relPath);
-            });
-
-            if (state.sessionId) {
-                formData.append('session_id', state.sessionId);
+            // Disable upload area while upload is in progress
+            const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            if (uploadArea) {
+                uploadArea.classList.add('disabled');
             }
 
-            let uploadOutcome;
-            try {
-                uploadOutcome = await new Promise((resolve, reject) => {
+            // Categorize files: small (fit in batched requests) vs large (need chunking)
+            let totalBytes = 0;
+            const smallFiles = [];
+            const largeFiles = [];
+
+            for (const file of files) {
+                totalBytes += file.size;
+                if (file.size > UPLOAD_CHUNK_SIZE) {
+                    largeFiles.push(file);
+                } else {
+                    smallFiles.push(file);
+                }
+            }
+
+            // Yield to browser to let it render the progress bar
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Group small files into batches of <= UPLOAD_CHUNK_SIZE total
+            const fileBatches = [];
+            let currentBatch = [];
+            let currentBatchSize = 0;
+
+            for (const file of smallFiles) {
+                if (currentBatchSize + file.size > UPLOAD_CHUNK_SIZE && currentBatch.length > 0) {
+                    fileBatches.push(currentBatch);
+                    currentBatch = [];
+                    currentBatchSize = 0;
+                }
+                currentBatch.push(file);
+                currentBatchSize += file.size;
+            }
+            if (currentBatch.length > 0) {
+                fileBatches.push(currentBatch);
+            }
+
+            // Build ordered upload tasks
+            const tasks = [];
+            for (const batch of fileBatches) {
+                const batchSize = batch.reduce((sum, f) => sum + f.size, 0);
+                tasks.push({ type: 'batch', files: batch, size: batchSize });
+            }
+            
+            // Yield to browser again before processing massive FormData
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            for (const file of largeFiles) {
+                tasks.push({ type: 'chunked-file', file: file, size: file.size });
+            }
+
+            if (tasks.length === 0) return;
+
+            let bytesSent = 0;
+            let aborted = false;
+            let currentXhr = null;
+
+            state.uploadController = {
+                active: true,
+                xhr: null,
+                abort() {
+                    aborted = true;
+                    if (currentXhr) {
+                        try { currentXhr.abort(); } catch (_) {}
+                    }
+                }
+            };
+
+            // Helper: send an XHR request with progress tracking
+            // showServerWait: only show "Processing files on server..." when true (use for the final request only)
+            function sendXhr(formData, url, showServerWait = false) {
+                return new Promise((resolve, reject) => {
+                    if (aborted) { reject({ cancelled: true, message: 'Upload cancelled by user.' }); return; }
+
                     const xhr = new XMLHttpRequest();
-                    state.uploadController = { xhr, active: true };
-                    xhr.open('POST', '/upload', true);
+                    currentXhr = xhr;
+                    state.uploadController.xhr = xhr;
+
+                    xhr.open('POST', url, true);
                     xhr.responseType = 'json';
                     xhr.setRequestHeader('Accept', 'application/json');
 
-                    xhr.upload.addEventListener('loadstart', () => {
-                        showProgressState(5, 'Starting upload...');
-                    });
-
                     xhr.upload.addEventListener('progress', (event) => {
-                        if (event.lengthComputable) {
-                            const percent = Math.round((event.loaded / event.total) * 100);
+                        if (event.lengthComputable && totalBytes > 0) {
+                            const overallSent = bytesSent + event.loaded;
+                            const percent = Math.round((overallSent / totalBytes) * 100);
                             const refined = Math.min(percent, 99);
-                            showProgressState(refined, `Uploading files... ${refined}%`);
-                        } else {
-                            showProgressState(50, 'Uploading files...', true);
+                            showProgressState(refined, `Uploading... ${refined}%`);
                         }
                     });
 
-                    xhr.addEventListener('error', () => reject(new Error('Network error during upload.')));
-                    xhr.addEventListener('timeout', () => reject(new Error('Upload timed out.')));
-                    xhr.addEventListener('abort', () => {
-                        reject({ cancelled: true, message: 'Upload cancelled by user.' });
+                    xhr.upload.addEventListener('load', () => {
+                        if (showServerWait) {
+                            const serverStart = Date.now();
+                            const serverTimer = setInterval(() => {
+                                const elapsed = Math.round((Date.now() - serverStart) / 1000);
+                                showProgressState(99, `Processing files on server... (${elapsed}s)`, true);
+                            }, 1000);
+                            xhr._serverTimer = serverTimer;
+                            showProgressState(99, 'Processing files on server...', true);
+                        }
                     });
 
+                    xhr.addEventListener('error', () => { clearInterval(xhr._serverTimer); reject(new Error('Network error during upload.')); });
+                    xhr.addEventListener('timeout', () => { clearInterval(xhr._serverTimer); reject(new Error('Upload timed out.')); });
+                    xhr.addEventListener('abort', () => { clearInterval(xhr._serverTimer); reject({ cancelled: true, message: 'Upload cancelled by user.' }); });
+
                     xhr.addEventListener('load', () => {
+                        clearInterval(xhr._serverTimer);
                         let payload = xhr.response;
                         if (!payload && xhr.responseText) {
-                            try {
-                                payload = JSON.parse(xhr.responseText);
-                            } catch (_) {
-                                payload = null;
-                            }
+                            try { payload = JSON.parse(xhr.responseText); } catch (_) { payload = null; }
                         }
 
                         if (xhr.status === 401) {
@@ -1605,24 +1816,185 @@
                         }
 
                         if (xhr.status >= 200 && xhr.status < 300) {
-                            showProgressState(100, 'Finalizing upload...');
                             resolve({ data: payload });
                             return;
                         }
 
-                        const errorMessage = (payload && payload.error) || `Upload failed with status ${xhr.status}.`;
-                        reject(new Error(errorMessage));
+                        reject(new Error((payload && payload.error) || `Upload failed with status ${xhr.status}.`));
                     });
 
                     xhr.send(formData);
                 });
+            }
+
+            // Helper: send a JSON POST request
+            function sendJson(url, body) {
+                return new Promise((resolve, reject) => {
+                    if (aborted) { reject({ cancelled: true, message: 'Upload cancelled by user.' }); return; }
+
+                    const xhr = new XMLHttpRequest();
+                    currentXhr = xhr;
+                    state.uploadController.xhr = xhr;
+
+                    xhr.open('POST', url, true);
+                    xhr.responseType = 'json';
+                    xhr.setRequestHeader('Content-Type', 'application/json');
+                    xhr.setRequestHeader('Accept', 'application/json');
+
+                    const jsonStart = Date.now();
+                    const jsonTimer = setInterval(() => {
+                        const elapsed = Math.round((Date.now() - jsonStart) / 1000);
+                        showProgressState(99, `Processing files on server... (${elapsed}s)`, true);
+                    }, 1000);
+
+                    xhr.addEventListener('error', () => { clearInterval(jsonTimer); reject(new Error('Network error.')); });
+                    xhr.addEventListener('abort', () => { clearInterval(jsonTimer); reject({ cancelled: true, message: 'Upload cancelled by user.' }); });
+
+                    xhr.addEventListener('load', () => {
+                        clearInterval(jsonTimer);
+                        let payload = xhr.response;
+                        if (!payload && xhr.responseText) {
+                            try { payload = JSON.parse(xhr.responseText); } catch (_) { payload = null; }
+                        }
+
+                        if (xhr.status === 401) {
+                            lockInterface((payload && payload.error) || 'Session expired.');
+                            resolve({ unauthorized: true });
+                            return;
+                        }
+
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            resolve({ data: payload });
+                        } else {
+                            reject(new Error((payload && payload.error) || `Request failed (${xhr.status}).`));
+                        }
+                    });
+
+                    xhr.send(JSON.stringify(body));
+                });
+            }
+
+            let allDicomFiles = [];
+            let lastResult = null;
+            let uploadOutcome = null;
+
+            try {
+                for (let taskIndex = 0; taskIndex < tasks.length; taskIndex++) {
+                    if (aborted) throw { cancelled: true, message: 'Upload cancelled by user.' };
+
+                    const task = tasks[taskIndex];
+
+                    if (task.type === 'batch') {
+                        // Send batch of small files via /upload
+                        const formData = new FormData();
+                        task.files.forEach(file => {
+                            formData.append('files', file);
+                            formData.append('relative_paths', file.webkitRelativePath || file.relativePath || '');
+                        });
+                        if (state.sessionId) {
+                            formData.append('session_id', state.sessionId);
+                        }
+
+                        const isLastTask = (taskIndex === tasks.length - 1);
+                        const outcome = await sendXhr(formData, '/upload', isLastTask);
+                        if (outcome.unauthorized) { uploadOutcome = { unauthorized: true }; break; }
+
+                        const result = outcome.data;
+                        if (result && result.success) {
+                            state.sessionId = result.session_id;
+                            lastResult = result;
+                            if (Array.isArray(result.files)) {
+                                allDicomFiles = allDicomFiles.concat(result.files);
+                            }
+                        } else {
+                            throw new Error((result && result.error) || 'Upload batch failed.');
+                        }
+
+                        bytesSent += task.size;
+
+                    } else if (task.type === 'chunked-file') {
+                        // Upload a large file in chunks
+                        const file = task.file;
+                        const totalChunks = Math.ceil(file.size / UPLOAD_CHUNK_SIZE);
+                        const uploadId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+                            ? crypto.randomUUID()
+                            : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+                                (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16)
+                              );
+
+                        for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+                            if (aborted) throw { cancelled: true, message: 'Upload cancelled by user.' };
+
+                            const start = chunkIdx * UPLOAD_CHUNK_SIZE;
+                            const end = Math.min(start + UPLOAD_CHUNK_SIZE, file.size);
+                            const blob = file.slice(start, end);
+
+                            const chunkForm = new FormData();
+                            chunkForm.append('chunk', blob, `chunk_${chunkIdx}`);
+                            chunkForm.append('upload_id', uploadId);
+                            chunkForm.append('chunk_index', String(chunkIdx));
+                            chunkForm.append('total_chunks', String(totalChunks));
+                            chunkForm.append('filename', file.name);
+                            chunkForm.append('relative_path', file.webkitRelativePath || file.relativePath || '');
+                            if (state.sessionId) {
+                                chunkForm.append('session_id', state.sessionId);
+                            }
+
+                            const chunkOutcome = await sendXhr(chunkForm, '/upload-chunk');
+                            if (chunkOutcome.unauthorized) { uploadOutcome = { unauthorized: true }; break; }
+
+                            const chunkResult = chunkOutcome.data;
+                            if (!chunkResult || !chunkResult.success) {
+                                throw new Error((chunkResult && chunkResult.error) || 'Chunk upload failed.');
+                            }
+
+                            bytesSent += (end - start);
+                        }
+
+                        if (uploadOutcome && uploadOutcome.unauthorized) break;
+                        if (aborted) throw { cancelled: true, message: 'Upload cancelled by user.' };
+
+                        // Assemble chunks on the server
+                        showProgressState(
+                            Math.min(Math.round((bytesSent / totalBytes) * 100), 99),
+                            'Assembling file on server...',
+                            true
+                        );
+
+                        const completeOutcome = await sendJson('/upload-chunk-complete', {
+                            upload_id: uploadId,
+                            filename: file.name,
+                            relative_path: file.webkitRelativePath || file.relativePath || '',
+                            session_id: state.sessionId || '',
+                            total_chunks: totalChunks
+                        });
+
+                        if (completeOutcome.unauthorized) { uploadOutcome = { unauthorized: true }; break; }
+
+                        const completeResult = completeOutcome.data;
+                        if (completeResult && completeResult.success) {
+                            state.sessionId = completeResult.session_id;
+                            lastResult = completeResult;
+                            if (Array.isArray(completeResult.files)) {
+                                allDicomFiles = allDicomFiles.concat(completeResult.files);
+                            }
+                        } else {
+                            throw new Error((completeResult && completeResult.error) || 'File assembly failed.');
+                        }
+                    }
+                }
+
+                showProgressState(100, 'Finalizing upload...');
+
             } catch (error) {
                 const controller = state.uploadController;
-                if (controller) {
-                    controller.active = false;
-                }
+                if (controller) { controller.active = false; }
                 state.uploadController = null;
                 hideProgress();
+
+                const uploadAreaEl = document.getElementById(`uploadArea-${tabId}`);
+                if (uploadAreaEl) { uploadAreaEl.classList.remove('disabled'); }
+
                 if (error && error.cancelled) {
                     showStatus('ℹ️ Upload cancelled. You can try again when ready.', 'info', tabId);
                 } else {
@@ -1633,42 +2005,54 @@
             }
 
             const controller = state.uploadController;
-            if (controller) {
-                controller.active = false;
-            }
+            if (controller) { controller.active = false; }
             state.uploadController = null;
             hideProgress();
+
+            // Re-enable upload area
+            const uploadAreaDone = document.getElementById(`uploadArea-${tabId}`);
+            if (uploadAreaDone) { uploadAreaDone.classList.remove('disabled'); }
 
             if (uploadOutcome && uploadOutcome.unauthorized) {
                 if (anonymizeBtn) {
                     anonymizeBtn.disabled = false;
-                    anonymizeBtn.textContent = '🔒 Start Anonymization';
+                    anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
                 }
                 enableUploadForTab(tabId);
                 return;
             }
 
-            const result = uploadOutcome ? uploadOutcome.data : null;
+            // Use the last result for final counts, but merge all DICOM files
+            const result = lastResult;
 
             if (result && result.success) {
                 state.sessionId = result.session_id;
                 state.totalDicomCount = result.total_dicom_count;
 
-                const uploadedFiles = Array.isArray(result.files) ? result.files : [];
-                if (result.is_new_session) {
-                    state.files = uploadedFiles;
+                if (tasks.length === 1 && tasks[0].type === 'batch' && result.is_new_session) {
+                    state.files = allDicomFiles;
                 } else {
-                    state.files = state.files.concat(uploadedFiles);
+                    state.files = state.files.concat(allDicomFiles);
                 }
 
                 displayBatchInfo(tabId);
                 displayUploadedFiles(state.files, tabId);
 
+                // Show notice about removed non-DICOM files
+                if (result.non_dicom_deleted > 0) {
+                    showNonDicomNotice(tabId, result.non_dicom_deleted, result.non_dicom_deleted_names || []);
+                }
+
                 if (state.totalDicomCount > 0) {
                     showStatus(`✅ Batch contains ${state.totalDicomCount} DICOM files. You can add more or start processing.`, 'success', tabId);
-                    const optionsCard = document.getElementById(`optionsCard-${tabId}`);
-                    if (optionsCard) {
-                        optionsCard.classList.remove('hidden');
+                    // Show the Anonymize button now that we have files
+                    const anonBtn = document.getElementById(`anonymizeBtn-${tabId}`);
+                    if (anonBtn) anonBtn.classList.remove('hidden');
+
+                    // Auto-run anonymization if checkbox is checked
+                    const autoRunCheckbox = document.getElementById(`autoRun-${tabId}`);
+                    if (autoRunCheckbox && autoRunCheckbox.checked) {
+                        startAnonymization(tabId);
                     }
                 } else {
                     showStatus('⚠️ No DICOM files detected in batch. Please add DICOM files.', 'warning', tabId);
@@ -1686,10 +2070,15 @@
             
             batchInfo.classList.remove('hidden');
             batchStats.innerHTML = `
-                <p><strong>Session ID:</strong> ${state.sessionId.substring(0, 8)}...</p>
-                <p><strong>Total DICOM Files:</strong> ${state.totalDicomCount}</p>
-                <p><strong>Status:</strong> Ready for processing</p>
+                <span class="batch-stat"><strong>${state.totalDicomCount}</strong> DICOM files</span>
+                <span class="batch-stat">Session: ${state.sessionId.substring(0, 8)}…</span>
             `;
+
+            // Switch upload area to compact mode
+            const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            if (uploadArea && !uploadArea.classList.contains('compact')) {
+                uploadArea.classList.add('compact');
+            }
         }
 
         function displayUploadedFiles(files, tabId) {
@@ -1702,7 +2091,7 @@
 
             fileList.innerHTML = `
                 <div class="file-list-header">
-                    <h4>📋 Files in Current Batch</h4>
+                    <h4 style="margin: 0; font-size: 0.95em;">📋 Files in Batch</h4>
                     <span class="file-list-summary">${totalFiles} files • ${dicomCount} DICOM</span>
                 </div>
                 <div class="file-list-scroll" id="fileListScroll-${tabId}"></div>
@@ -1730,10 +2119,10 @@
 
             Object.keys(fileGroups).forEach(group => {
                 const groupDiv = document.createElement('div');
-                groupDiv.style.marginBottom = '15px';
+                groupDiv.style.marginBottom = '6px';
 
                 const groupHeader = document.createElement('h5');
-                groupHeader.style.color = '#0066cc';
+                groupHeader.style.cssText = 'color: #0066cc; margin: 0 0 4px 0; font-size: 0.88em;';
                 groupHeader.textContent = group;
                 groupDiv.appendChild(groupHeader);
 
@@ -1745,16 +2134,19 @@
                     const fileStatus = file.is_dicom ? 'DICOM' : 'Not DICOM';
                     const fileIcon = file.is_dicom ? '🏥' : '📄';
 
-                    fileItem.innerHTML = `
-                        <span>${fileIcon} ${fileName}</span>
-                        <span class="badge ${file.is_dicom ? 'dicom' : 'non-dicom'}">${fileStatus}</span>
-                    `;
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = `${fileIcon} ${fileName}`;
+                    const badgeSpan = document.createElement('span');
+                    badgeSpan.className = `badge ${file.is_dicom ? 'dicom' : 'non-dicom'}`;
+                    badgeSpan.textContent = fileStatus;
+                    fileItem.appendChild(nameSpan);
+                    fileItem.appendChild(badgeSpan);
                     groupDiv.appendChild(fileItem);
 
                     if (file.is_dicom) {
                         const summaryItem = document.createElement('div');
                         summaryItem.style.padding = '2px 5px';
-                        summaryItem.innerHTML = `🏥 ${fileName}`;
+                        summaryItem.textContent = `🏥 ${fileName}`;
                         batchFilesList.appendChild(summaryItem);
                     }
                 });
@@ -1767,22 +2159,110 @@
             fileList.classList.remove('hidden');
         }
 
+        function toggleNonDicomNotice(btn, bodyId) {
+            const body = document.getElementById(bodyId);
+            if (!body) return;
+            body.classList.toggle('expanded');
+            const expanded = body.classList.contains('expanded');
+            btn.setAttribute('aria-expanded', expanded);
+            btn.textContent = expanded ? '▲ hide' : '▼ show';
+        }
+
+        function showNonDicomNotice(tabId, count, fileNames) {
+            // Remove any existing notice for this tab
+            const existingNotice = document.getElementById(`nonDicomNotice-${tabId}`);
+            if (existingNotice) {
+                existingNotice.remove();
+            }
+
+            const notice = document.createElement('div');
+            notice.id = `nonDicomNotice-${tabId}`;
+            notice.className = 'non-dicom-notice';
+
+            const header = document.createElement('div');
+            header.className = 'notice-header';
+
+            const title = document.createElement('strong');
+            title.textContent = `⚠️ ${count} non-DICOM file${count > 1 ? 's' : ''} removed — only valid DICOM files are kept`;
+            header.appendChild(title);
+
+            const controls = document.createElement('span');
+
+            if (fileNames.length > 0) {
+                const displayNames = fileNames.slice(0, 20);
+                const bodyId = `noticeBody-${tabId}`;
+
+                const noticeBody = document.createElement('div');
+                noticeBody.className = 'notice-body';
+                noticeBody.id = bodyId;
+
+                const ul = document.createElement('ul');
+                ul.className = 'notice-file-list';
+                displayNames.forEach(name => {
+                    const li = document.createElement('li');
+                    li.textContent = name;
+                    ul.appendChild(li);
+                });
+                if (count > displayNames.length) {
+                    const moreLi = document.createElement('li');
+                    const em = document.createElement('em');
+                    em.textContent = `...and ${count - displayNames.length} more`;
+                    moreLi.appendChild(em);
+                    ul.appendChild(moreLi);
+                }
+                noticeBody.appendChild(ul);
+
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'notice-toggle';
+                toggleBtn.setAttribute('aria-label', 'Toggle file list');
+                toggleBtn.setAttribute('aria-expanded', 'false');
+                toggleBtn.setAttribute('aria-controls', bodyId);
+                toggleBtn.title = 'Toggle file list';
+                toggleBtn.textContent = '▼ show';
+                toggleBtn.addEventListener('click', () => toggleNonDicomNotice(toggleBtn, bodyId));
+                controls.appendChild(toggleBtn);
+
+                notice.appendChild(header);
+                notice.appendChild(noticeBody);
+            } else {
+                notice.appendChild(header);
+            }
+
+            const dismissBtn = document.createElement('button');
+            dismissBtn.className = 'notice-dismiss';
+            dismissBtn.setAttribute('aria-label', 'Dismiss');
+            dismissBtn.title = 'Dismiss';
+            dismissBtn.textContent = '×';
+            dismissBtn.addEventListener('click', () => notice.remove());
+            controls.appendChild(dismissBtn);
+            header.appendChild(controls);
+
+            const fileList = document.getElementById(`fileList-${tabId}`);
+            if (fileList) {
+                fileList.parentNode.insertBefore(notice, fileList);
+            }
+        }
+
         function cancelActiveUpload(tabId) {
             const state = tabStates[tabId];
-            if (!state || !state.uploadController || !state.uploadController.xhr) {
+            if (!state || !state.uploadController) {
                 return;
             }
 
             const controller = state.uploadController;
-            const { xhr } = controller;
             controller.active = false;
-            state.uploadController = null;
 
             try {
-                xhr.abort();
+                if (typeof controller.abort === 'function') {
+                    controller.abort();
+                } else if (controller.xhr) {
+                    controller.xhr.abort();
+                }
             } catch (error) {
                 console.warn('Error aborting upload', error);
             }
+
+            state.uploadController = null;
 
             const progressText = document.getElementById(`progressText-${tabId}`);
             const cancelUploadBtn = document.getElementById(`cancelUpload-${tabId}`);
@@ -1796,7 +2276,11 @@
 
         function enableUploadForTab(tabId) {
             const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            if (!uploadArea || !tabStates[tabId]) {
+                return;
+            }
             uploadArea.classList.remove('disabled');
+            tabStates[tabId].uploadEnabled = true;
             showStatus('📁 Upload enabled. Add more files to the batch.', 'info', tabId);
         }
 
@@ -1851,55 +2335,46 @@
                     showAnonymizationResults(result, tabId);
                     // Reset button state after success
                     anonymizeBtn.disabled = false;
-                    anonymizeBtn.textContent = '🔒 Start Anonymization';
+                    anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
                 } else {
                     showStatus(`❌ Anonymization failed: ${result.error}`, 'error', tabId);
                     anonymizeBtn.disabled = false;
-                    anonymizeBtn.textContent = '🔒 Start Anonymization';
+                    anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
                     enableUploadForTab(tabId);
                 }
             } catch (error) {
                 showStatus(`❌ Anonymization failed: ${error.message}`, 'error', tabId);
                 anonymizeBtn.disabled = false;
-                anonymizeBtn.textContent = '🔒 Start Anonymization';
+                anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
                 enableUploadForTab(tabId);
             }
         }
 
         function showAnonymizationResults(result, tabId) {
             const resultsStatus = document.getElementById(`resultsStatus-${tabId}`);
-            
-            // Build directory structure display
-            let structureHtml = '';
-            if (result.file_structure) {
-                structureHtml = '<div class="directory-tree"><h5>📂 Preserved Structure:</h5>';
-                Object.keys(result.file_structure).forEach(dir => {
-                    if (dir === 'root') {
-                        structureHtml += '<div class="directory-item">📁 /</div>';
-                    } else {
-                        structureHtml += `<div class="directory-item"><span class="directory-folder">📁 ${dir}/</span></div>`;
-                    }
-                    result.file_structure[dir].forEach(file => {
-                        structureHtml += `<div class="directory-item directory-file">  └─ 🏥 ${file}</div>`;
-                    });
-                });
-                structureHtml += '</div>';
-            }
-            
+
+            // Count directories
+            const dirs = result.file_structure ? Object.keys(result.file_structure) : [];
+            const dirCount = dirs.filter(d => d !== 'root').length;
+            const summary = dirCount > 0
+                ? `${result.count} files across ${dirCount} folder${dirCount > 1 ? 's' : ''}`
+                : `${result.count} files`;
+
+            // Build a compact collapsible file list
+            const fileListId = `anonFileList-${tabId}`;
+            const escapeHtml = (str) => {
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            };
+            const fileRows = result.files.map(file =>
+                `<div class="file-row"><span>${escapeHtml(file.anonymized)}</span><span style="color:#28a745;">✅</span></div>`
+            ).join('');
+
             resultsStatus.innerHTML = `
-                <div class="status success">
-                    ✅ Successfully anonymized ${result.count} DICOM files - Download starting automatically...
-                </div>
-                ${structureHtml}
-                <div class="file-list">
-                    <h4>🔒 Anonymized Files:</h4>
-                    ${result.files.map(file => `
-                        <div class="file-item dicom">
-                            <span>🏥 ${file.anonymized}</span>
-                            <span>✅ Anonymized</span>
-                        </div>
-                    `).join('')}
-                </div>
+                <span style="font-size:0.9em;">🔒 ${summary} anonymized</span>
+                <button class="anon-results-toggle" onclick="document.getElementById('${fileListId}').classList.toggle('hidden')">Show files</button>
+                <div id="${fileListId}" class="anon-results-files hidden">${fileRows}</div>
             `;
 
             const downloadBtn = document.getElementById(`downloadBtn-${tabId}`);
@@ -1908,15 +2383,17 @@
             document.getElementById(`optionsCard-${tabId}`).classList.add('hidden');
             document.getElementById(`resultsCard-${tabId}`).classList.remove('hidden');
 
-            // Automatically start download after a short delay
-            setTimeout(() => {
-                downloadAnonymizedFiles(tabId);
-                // Update the status message after download starts
-                const statusDiv = resultsStatus.querySelector('.status.success');
-                if (statusDiv) {
-                    statusDiv.innerHTML = '✅ Successfully anonymized ' + result.count + ' DICOM files - Download started!';
-                }
-            }, 1500);
+            // Auto-download if auto-run is enabled
+            const autoRunCheckbox = document.getElementById(`autoRun-${tabId}`);
+            if (autoRunCheckbox && autoRunCheckbox.checked) {
+                setTimeout(() => {
+                    downloadAnonymizedFiles(tabId);
+                    const span = resultsStatus.querySelector('span');
+                    if (span) {
+                        span.textContent = `🔒 ${summary} anonymized — download started!`;
+                    }
+                }, 1000);
+            }
         }
 
         function downloadAnonymizedFiles(tabId) {
@@ -1947,7 +2424,7 @@
             const anonymizeBtn = document.getElementById(`anonymizeBtn-${tabId}`);
             if (anonymizeBtn) {
                 anonymizeBtn.disabled = false;
-                anonymizeBtn.textContent = '🔒 Start Anonymization';
+                anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
             }
             
             resetTabContent(tabContent, tabId);
@@ -1962,13 +2439,29 @@
                 folderInput.value = '';
             }
             
-            // Hide all sections
+            // Hide all sections except optionsCard
             document.getElementById(`batchInfo-${tabId}`).classList.add('hidden');
             document.getElementById(`fileList-${tabId}`).classList.add('hidden');
-            document.getElementById(`optionsCard-${tabId}`).classList.add('hidden');
             document.getElementById(`resultsCard-${tabId}`).classList.add('hidden');
             document.getElementById(`uploadStatus-${tabId}`).classList.add('hidden');
             document.getElementById(`uploadProgress-${tabId}`).classList.add('hidden');
+
+            // Keep optionsCard visible, hide anonymize button
+            document.getElementById(`optionsCard-${tabId}`).classList.remove('hidden');
+            const anonBtnReset = document.getElementById(`anonymizeBtn-${tabId}`);
+            if (anonBtnReset) anonBtnReset.classList.add('hidden');
+
+            // Restore upload area to full mode
+            const uploadArea = document.getElementById(`uploadArea-${tabId}`);
+            if (uploadArea) {
+                uploadArea.classList.remove('compact', 'disabled');
+            }
+
+            // Remove non-DICOM notice if present
+            const nonDicomNotice = document.getElementById(`nonDicomNotice-${tabId}`);
+            if (nonDicomNotice) {
+                nonDicomNotice.remove();
+            }
             
             showStatus('🚀 Ready to upload a new batch of files.', 'info', tabId);
         }

@@ -1828,7 +1828,10 @@
             }
 
             // Helper: send a JSON POST request
-            function sendJson(url, body) {
+            // Options: { skipTimer: true } to suppress the built-in elapsed timer (when external poller is active)
+            function sendJson(url, body, progressLabel, options) {
+                const label = progressLabel || 'Processing files on server';
+                const skipTimer = options && options.skipTimer;
                 return new Promise((resolve, reject) => {
                     if (aborted) { reject({ cancelled: true, message: 'Upload cancelled by user.' }); return; }
 
@@ -1841,17 +1844,20 @@
                     xhr.setRequestHeader('Content-Type', 'application/json');
                     xhr.setRequestHeader('Accept', 'application/json');
 
-                    const jsonStart = Date.now();
-                    const jsonTimer = setInterval(() => {
-                        const elapsed = Math.round((Date.now() - jsonStart) / 1000);
-                        showProgressState(99, `Processing files on server... (${elapsed}s)`, true);
-                    }, 1000);
+                    let jsonTimer = null;
+                    if (!skipTimer) {
+                        const jsonStart = Date.now();
+                        jsonTimer = setInterval(() => {
+                            const elapsed = Math.round((Date.now() - jsonStart) / 1000);
+                            showProgressState(99, `${label}... (${elapsed}s)`, true);
+                        }, 1000);
+                    }
 
-                    xhr.addEventListener('error', () => { clearInterval(jsonTimer); reject(new Error('Network error.')); });
-                    xhr.addEventListener('abort', () => { clearInterval(jsonTimer); reject({ cancelled: true, message: 'Upload cancelled by user.' }); });
+                    xhr.addEventListener('error', () => { if (jsonTimer) clearInterval(jsonTimer); reject(new Error('Network error.')); });
+                    xhr.addEventListener('abort', () => { if (jsonTimer) clearInterval(jsonTimer); reject({ cancelled: true, message: 'Upload cancelled by user.' }); });
 
                     xhr.addEventListener('load', () => {
-                        clearInterval(jsonTimer);
+                        if (jsonTimer) clearInterval(jsonTimer);
                         let payload = xhr.response;
                         if (!payload && xhr.responseText) {
                             try { payload = JSON.parse(xhr.responseText); } catch (_) { payload = null; }
@@ -1954,20 +1960,67 @@
                         if (uploadOutcome && uploadOutcome.unauthorized) break;
                         if (aborted) throw { cancelled: true, message: 'Upload cancelled by user.' };
 
-                        // Assemble chunks on the server
+                        // Assemble chunks on the server — poll for real progress
                         showProgressState(
                             Math.min(Math.round((bytesSent / totalBytes) * 100), 99),
                             'Assembling file on server...',
-                            true
+                            false
                         );
 
-                        const completeOutcome = await sendJson('/upload-chunk-complete', {
-                            upload_id: uploadId,
-                            filename: file.name,
-                            relative_path: file.webkitRelativePath || file.relativePath || '',
-                            session_id: state.sessionId || '',
-                            total_chunks: totalChunks
-                        });
+                        const stageLabels = {
+                            preparing: 'Preparing',
+                            assembling: 'Assembling chunks',
+                            processing: 'Checking file type',
+                            extracting: 'Extracting ZIP archive',
+                            validating: 'Validating DICOM files',
+                            cleaning: 'Cleaning up non-DICOM files',
+                            complete: 'Done'
+                        };
+
+                        const assemblyPollId = uploadId;
+                        const assemblyStart = Date.now();
+                        let pollFailures = 0;
+                        let lastStage = '';
+                        const assemblyPoller = setInterval(async () => {
+                            const elapsed = Math.round((Date.now() - assemblyStart) / 1000);
+                            try {
+                                const resp = await fetch(`/assembly-progress/${assemblyPollId}`);
+                                if (resp.ok) {
+                                    pollFailures = 0;
+                                    const prog = await resp.json();
+                                    if (!prog.stage || prog.stage === 'unknown') {
+                                        showProgressState(1, `Assembling file on server... (${elapsed}s)`, true);
+                                    } else {
+                                        lastStage = prog.stage;
+                                        const stageLabel = stageLabels[prog.stage] || prog.stage;
+                                        const detail = prog.detail ? ` — ${prog.detail}` : '';
+                                        const pct = Math.max(prog.percent || 0, 1);
+                                        showProgressState(pct, `${stageLabel}${detail} (${elapsed}s)`, false);
+                                    }
+                                } else {
+                                    pollFailures++;
+                                }
+                            } catch (_) {
+                                pollFailures++;
+                            }
+                            // If polling fails repeatedly, fall back to elapsed timer
+                            if (pollFailures >= 3) {
+                                showProgressState(99, `Processing on server... (${elapsed}s)`, true);
+                            }
+                        }, 800);
+
+                        let completeOutcome;
+                        try {
+                            completeOutcome = await sendJson('/upload-chunk-complete', {
+                                upload_id: uploadId,
+                                filename: file.name,
+                                relative_path: file.webkitRelativePath || file.relativePath || '',
+                                session_id: state.sessionId || '',
+                                total_chunks: totalChunks
+                            }, null, { skipTimer: true });
+                        } finally {
+                            clearInterval(assemblyPoller);
+                        }
 
                         if (completeOutcome.unauthorized) { uploadOutcome = { unauthorized: true }; break; }
 

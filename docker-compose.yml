@@ -1,13 +1,30 @@
 services:
-  dicom-anonymizer:
-    build: .
-    container_name: ${CONTAINER_NAME:-Dicom-Anonymizer}
+  redis:
+    image: redis:7-alpine
+    container_name: ${REDIS_CONTAINER_NAME:-dicom-anonymizer-redis}
     labels:
         com.docker.compose.project: "${COMPOSE_PROJECT_NAME:-docker}"
-    volumes:
-      # Mount directories for persistent storage (optional)
-      - dicom_uploads:/app/temp_uploads
-      - dicom_outputs:/app/temp_outputs
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
+    mem_limit: ${REDIS_MEMORY_LIMIT:-512M}
+    cpus: ${REDIS_CPU_LIMIT:-0.25}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  dicom-anonymizer:
+    build: .
+    container_name: ${CONTAINER_NAME:-dicom-anonymizer-app}
+    labels:
+        com.docker.compose.project: "${COMPOSE_PROJECT_NAME:-docker}"
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       - FLASK_ENV=${FLASK_ENV:-production}
       - FLASK_APP=${FLASK_APP:-app.py}
@@ -27,12 +44,15 @@ services:
       # Add additional Flask production settings
       - PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-1}
       - PYTHONDONTWRITEBYTECODE=${PYTHONDONTWRITEBYTECODE:-1}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    mem_limit: ${MEMORY_LIMIT:-4G}
+    mem_reservation: ${MEMORY_RESERVATION:-512M}
+    cpus: ${CPU_LIMIT:-0.6}
     restart: ${RESTART_POLICY:-unless-stopped}
-    # Uncomment for direct access testing
-    # ports:
-    #   - "${APP_PORT:-5000}:5000"
+    ports:
+      - "${APP_PORT:-5000}:5000"
     networks:
-      - nginx_lan
+      - default
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: ${HEALTH_CHECK_INTERVAL:-30s}
@@ -40,24 +60,5 @@ services:
       retries: ${HEALTH_CHECK_RETRIES:-3}
       start_period: ${HEALTH_CHECK_START_PERIOD:-40s}
 
-# Storage volumes - 20GB total capacity with automatic management
-# - 12GB for uploads (3GB max per session, multiple concurrent sessions)
-# - 8GB for outputs (anonymized files before download)
-# Files are automatically cleaned up after 30 minutes or on user logout
-volumes:
-  dicom_uploads:
-    driver: ${VOLUME_DRIVER:-local}
-    driver_opts:
-      type: ${VOLUME_TYPE:-tmpfs}
-      device: ${VOLUME_DEVICE:-tmpfs}
-      o: ${VOLUME_OPTIONS:-size=12G,noexec,nosuid,nodev}
-  dicom_outputs:
-    driver: ${VOLUME_DRIVER:-local}
-    driver_opts:
-      type: ${VOLUME_TYPE:-tmpfs}
-      device: ${VOLUME_DEVICE:-tmpfs}
-      o: ${VOLUME_OPTIONS:-size=8G,noexec,nosuid,nodev}
-
 networks:
-  nginx_lan:
-    external: ${NGINX_NETWORK_EXTERNAL:-true}
+  default:

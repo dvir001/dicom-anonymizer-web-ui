@@ -28,7 +28,7 @@ RUN adduser --disabled-password --gecos '' appuser
 # Create necessary directories with proper ownership and permissions
 # Note: Application supports up to 20GB total storage (12GB uploads + 8GB outputs)
 # with automatic cleanup after 30 minutes or on logout
-RUN mkdir -p temp_uploads temp_outputs && \
+RUN mkdir -p temp_uploads temp_outputs temp_chunks && \
     chown -R appuser:appuser /app && \
     chmod -R 755 /app
 
@@ -43,4 +43,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:5000/health || exit 1
 
 # Run the application
-CMD ["gunicorn", "--workers", "1", "--threads", "8", "--worker-class", "gthread", "--bind", "0.0.0.0:5000", "--timeout", "1800", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "info", "app:app"]
+CMD ["gunicorn", "--workers", "1", "--threads", "8", "--worker-class", "gthread", "--bind", "0.0.0.0:5000", "--timeout", "1800", "--max-requests", "500", "--max-requests-jitter", "50", "--preload", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "info", "app:app"]

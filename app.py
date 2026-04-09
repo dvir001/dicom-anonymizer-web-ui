@@ -27,6 +27,7 @@ from dicomanonymizer.anonymizer import isDICOMType
 from pydicom import dcmread
 from pydicom.errors import InvalidDicomError
 import json
+import ast
 import traceback
 import uuid as _uuid_mod
 from urllib.parse import quote
@@ -34,6 +35,7 @@ from functools import wraps
 from dotenv import load_dotenv
 from pathlib import Path
 import msal
+import state as shared_state
 
 # Load environment variables
 load_dotenv()
@@ -157,19 +159,15 @@ app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
 app.config['OUTPUT_FOLDER'] = str(OUTPUT_FOLDER)
 app.config['CHUNK_FOLDER'] = str(CHUNK_FOLDER)
 
-# Session tracking for automatic cleanup (10 minutes)
-session_timestamps = {}
-session_metadata = {}
-user_session_counts = {}
-session_lock = threading.Lock()
-
 # Storage management configuration
 MAX_TOTAL_STORAGE = 20 * 1024 * 1024 * 1024  # 20GB total storage limit
 SESSION_TIMEOUT_MINUTES_FILE = int(os.getenv('SESSION_FILE_TIMEOUT_MINUTES', '30'))
 MAX_SESSIONS_PER_USER = int(os.getenv('MAX_SESSIONS_PER_USER', '3'))
 
-# Global cache for consistent name mappings during anonymization
-name_mapping_cache = {}
+# Thin wrappers around shared_state for assembly progress (keeps call sites unchanged)
+_set_assembly_progress = shared_state.set_assembly_progress
+_get_assembly_progress = shared_state.get_assembly_progress
+_clear_assembly_progress = shared_state.clear_assembly_progress
 
 # Download packaging configuration (favor speed over compression by default)
 ZIP_COMPRESSION_MODE = os.getenv('ZIP_COMPRESSION_MODE', 'stored').lower()
@@ -237,121 +235,40 @@ def _compute_unique_dicom_rel_path(rel_path: str, used_paths: Optional[Set[str]]
 
 def _register_session_dicom_paths(session_id: str, new_paths: Optional[List[str]] = None) -> int:
     """Track DICOM file paths for a session and return the updated count."""
-    if new_paths is None:
-        new_paths = []
-
-    with session_lock:
-        metadata = session_metadata.get(session_id, {}).copy()
-        dicom_paths = metadata.get('dicom_paths')
-
-        if isinstance(dicom_paths, set):
-            tracked = dicom_paths
-        elif isinstance(dicom_paths, list):
-            tracked = set(dicom_paths)
-        else:
-            tracked = set()
-
-        if new_paths:
-            tracked.update(path for path in new_paths if path)
-
-        metadata['dicom_paths'] = tracked
-        metadata['dicom_count'] = len(tracked)
-        session_metadata[session_id] = metadata
-
-        return metadata['dicom_count']
+    return shared_state.register_session_dicom_paths(session_id, new_paths)
 
 
 def _get_tracked_dicom_paths(session_id: str) -> Set[str]:
     """Return a copy of tracked DICOM paths for a session."""
-    with session_lock:
-        metadata = session_metadata.get(session_id, {})
-        dicom_paths = metadata.get('dicom_paths')
+    return shared_state.get_tracked_dicom_paths(session_id)
 
-        if isinstance(dicom_paths, set):
-            tracked = set(dicom_paths)
-        elif isinstance(dicom_paths, list):
-            tracked = set(dicom_paths)
-            metadata = metadata.copy()
-            metadata['dicom_paths'] = tracked
-            metadata['dicom_count'] = len(tracked)
-            session_metadata[session_id] = metadata
-        else:
-            tracked = set()
-            metadata = metadata.copy()
-            metadata['dicom_paths'] = tracked
-            metadata['dicom_count'] = 0
-            session_metadata[session_id] = metadata
-
-        return tracked
-
-
-_last_storage_check_time = 0
-_last_storage_total = 0
-_storage_check_lock = threading.Lock()
 
 def _get_total_storage_usage() -> int:
-    global _last_storage_check_time, _last_storage_total
-    
     # Fast path: check if we have a recent cached value (within last 30 seconds)
-    now = time.time()
-    with _storage_check_lock:
-        if now - _last_storage_check_time < 30.0:
-            return _last_storage_total
-            
+    ts, total = shared_state.get_cached_storage_total()
+    if ts is not None and (time.time() - ts) < 30.0:
+        return total
+
     # Cache miss: recalculate
     total = 0
     for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER, CHUNK_FOLDER]:
         if os.path.exists(folder):
             total += _get_directory_size(str(folder))
-            
-    with _storage_check_lock:
-        _last_storage_total = total
-        _last_storage_check_time = time.time()
-        
+
+    shared_state.set_cached_storage_total(total)
     return total
 
 
 def _record_session_activity(session_id: str, session_size: int = 0, fingerprint: Optional[str] = None) -> None:
-    with session_lock:
-        now = time.time()
-        session_timestamps[session_id] = now
-        metadata = session_metadata.get(session_id, {}).copy()
-        if not metadata:
-            metadata = {'created': now, 'last_size': 0, 'fingerprint': fingerprint, 'dicom_paths': set(), 'dicom_count': 0}
-        else:
-            metadata.setdefault('created', now)
-            if fingerprint:
-                metadata['fingerprint'] = fingerprint
-
-        dicom_paths = metadata.get('dicom_paths')
-        if isinstance(dicom_paths, list):
-            dicom_paths = set(dicom_paths)
-        elif dicom_paths is None:
-            dicom_paths = set()
-        metadata['dicom_paths'] = dicom_paths
-        metadata['dicom_count'] = len(dicom_paths)
-
-        if session_size >= 0:
-            metadata['last_size'] = session_size
-
-        session_metadata[session_id] = metadata
+    shared_state.record_session_activity(session_id, session_size, fingerprint)
 
 
 def _clear_session_activity(session_id: str) -> None:
-    with session_lock:
-        session_timestamps.pop(session_id, None)
-        metadata = session_metadata.pop(session_id, None)
-        if metadata:
-            fingerprint = metadata.get('fingerprint')
-            if fingerprint and fingerprint in user_session_counts:
-                user_session_counts[fingerprint] = max(0, user_session_counts[fingerprint] - 1)
-                if user_session_counts[fingerprint] == 0:
-                    user_session_counts.pop(fingerprint, None)
+    shared_state.clear_session_activity(session_id)
 
 
 def _active_session_count() -> int:
-    with session_lock:
-        return len(session_timestamps)
+    return shared_state.active_session_count()
 
 
 def secure_url_for(endpoint, **values):
@@ -613,7 +530,7 @@ def _serialize_session_state(session_id: str) -> Optional[dict]:
 
     total_dicom = len(working_dicom_paths)
 
-    metadata = session_metadata.get(session_id, {})
+    metadata = shared_state.get_session_metadata(session_id) or {}
     created_ts = metadata.get('created')
     created_iso = None
     expires_in_seconds = None
@@ -637,17 +554,7 @@ def get_consistent_random_number(name):
     Generate a consistent random number for a given name using SHA-256 hash.
     This ensures the same name always gets the same anonymized value.
     """
-    if name in name_mapping_cache:
-        return name_mapping_cache[name]
-    
-    # Create a hash of the name and convert to a consistent number
-    hash_obj = hashlib.sha256(name.encode('utf-8'))
-    hash_hex = hash_obj.hexdigest()
-    # Take first 8 characters and convert to int, get last 6 digits
-    random_number = str(int(hash_hex[:8], 16))[-6:]
-    
-    name_mapping_cache[name] = random_number
-    return random_number
+    return shared_state.get_consistent_random_number(name)
 
 
 def create_minimal_anonymization_rules():
@@ -782,14 +689,13 @@ def cleanup_non_dicom_files(uploaded_files, session_dir, session_id=None):
 
 def cleanup_old_sessions():
     """
-    Background task to automatically clean up sessions older than 10 minutes.
+    Background task to automatically clean up sessions older than configured timeout.
     Runs continuously to prevent storage accumulation.
     """
     while True:
         try:
             current_time = time.time()
-            with session_lock:
-                sessions_snapshot = list(session_timestamps.items())
+            sessions_snapshot = shared_state.get_sessions_snapshot()
 
             timeout_seconds = SESSION_TIMEOUT_MINUTES_FILE * 60
             sessions_to_remove = [
@@ -894,6 +800,7 @@ def health_check():
             'output_folder_exists': os.path.exists(app.config['OUTPUT_FOLDER']),
             'upload_folder_writable': os.access(app.config['UPLOAD_FOLDER'], os.W_OK),
             'output_folder_writable': os.access(app.config['OUTPUT_FOLDER'], os.W_OK),
+            'redis_healthy': shared_state.check_redis_health(),
             'environment': os.getenv('FLASK_ENV', 'development'),
             'active_sessions': _active_session_count()
         }
@@ -903,7 +810,8 @@ def health_check():
             checks['upload_folder_exists'],
             checks['output_folder_exists'],
             checks['upload_folder_writable'],
-            checks['output_folder_writable']
+            checks['output_folder_writable'],
+            checks['redis_healthy']
         ])
         
         if all_healthy:
@@ -1146,14 +1054,12 @@ def upload_files():
         session_id = os.urandom(16).hex()
         is_new_session = True
 
-        with session_lock:
-            user_sessions = user_session_counts.get(client_fingerprint, 0)
-            if user_sessions >= MAX_SESSIONS_PER_USER:
-                return jsonify({
-                    'error': f'Maximum {MAX_SESSIONS_PER_USER} concurrent sessions allowed per user. Please close existing sessions first.'
-                }), 429
-
-            user_session_counts[client_fingerprint] = user_sessions + 1
+        current_count = shared_state.get_user_session_count(client_fingerprint)
+        if current_count >= MAX_SESSIONS_PER_USER:
+            return jsonify({
+                'error': f'Maximum {MAX_SESSIONS_PER_USER} concurrent sessions allowed per user. Please close existing sessions first.'
+            }), 429
+        shared_state.increment_user_sessions(client_fingerprint)
 
     session_dir = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
     
@@ -1257,14 +1163,20 @@ def upload_files():
             is_zip = False
             try:
                 with zipfile.ZipFile(filepath, 'r') as test_zip:
-                    total_size = sum(info.file_size for info in test_zip.infolist())
+                    zip_entries = test_zip.infolist()
+                    if len(zip_entries) > 10000:
+                        logger.warning("ZIP file contains too many entries: %s (%d files)", filepath, len(zip_entries))
+                        os.remove(filepath)
+                        existing_paths.discard(rel_candidate)
+                        continue
+                    total_size = sum(info.file_size for info in zip_entries)
                     if total_size > 1024 * 1024 * 1024:
                         logger.warning("ZIP file too large when extracted: %s (%d bytes)", filepath, total_size)
                         os.remove(filepath)
                         existing_paths.discard(rel_candidate)
                         continue
 
-                    for info in test_zip.infolist():
+                    for info in zip_entries:
                         if '..' in info.filename or info.filename.startswith('/') or '\\' in info.filename:
                             logger.warning("Malicious path in ZIP file: %s", info.filename)
                             os.remove(filepath)
@@ -1439,6 +1351,22 @@ def upload_chunk():
     })
 
 
+@app.route('/assembly-progress/<upload_id>')
+@login_required
+def assembly_progress(upload_id):
+    """Return the current progress of a chunked upload assembly."""
+    try:
+        _uuid_mod.UUID(upload_id)
+    except (ValueError, AttributeError):
+        return jsonify({'error': 'Invalid upload ID'}), 400
+
+    progress = _get_assembly_progress(upload_id)
+    if progress is None:
+        return jsonify({'stage': 'unknown', 'detail': '', 'percent': 0}), 200
+
+    return jsonify(progress), 200
+
+
 @app.route('/upload-chunk-complete', methods=['POST'])
 @login_required
 def upload_chunk_complete():
@@ -1459,18 +1387,25 @@ def upload_chunk_complete():
     except (ValueError, AttributeError):
         return jsonify({'error': 'Invalid upload ID'}), 400
 
+    # Set initial progress immediately so polling clients see something right away
+    _set_assembly_progress(upload_id, 'preparing', 'Validating request...', 0)
+
     try:
         total_chunks = int(total_chunks_raw)
     except (ValueError, TypeError):
+        _clear_assembly_progress(upload_id)
         return jsonify({'error': 'Invalid total chunks'}), 400
 
     if total_chunks < 1:
+        _clear_assembly_progress(upload_id)
         return jsonify({'error': 'Invalid total chunks'}), 400
 
     if session_id and not re.match(r'^[a-f0-9]{32}$', session_id):
+        _clear_assembly_progress(upload_id)
         return jsonify({'error': 'Invalid session ID format'}), 400
 
     if not filename or not allowed_file(filename):
+        _clear_assembly_progress(upload_id)
         return jsonify({'error': 'Invalid filename'}), 400
 
     client_fingerprint = session.get('user_oid') or session.get('user_email') or 'anonymous'
@@ -1489,14 +1424,13 @@ def upload_chunk_complete():
         session_id = os.urandom(16).hex()
         is_new_session = True
 
-        with session_lock:
-            user_sessions = user_session_counts.get(client_fingerprint, 0)
-            if user_sessions >= MAX_SESSIONS_PER_USER:
-                shutil.rmtree(chunk_dir, ignore_errors=True)
-                return jsonify({
-                    'error': f'Maximum {MAX_SESSIONS_PER_USER} concurrent sessions allowed per user.'
-                }), 429
-            user_session_counts[client_fingerprint] = user_sessions + 1
+        current_count = shared_state.get_user_session_count(client_fingerprint)
+        if current_count >= MAX_SESSIONS_PER_USER:
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+            return jsonify({
+                'error': f'Maximum {MAX_SESSIONS_PER_USER} concurrent sessions allowed per user.'
+            }), 429
+        shared_state.increment_user_sessions(client_fingerprint)
 
     session_dir = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
 
@@ -1575,33 +1509,45 @@ def upload_chunk_complete():
             return jsonify({'error': 'Invalid file path'}), 400
 
         # Assemble chunks into the final file
+        _set_assembly_progress(upload_id, 'assembling', f'Writing chunk 1/{total_chunks}', 0)
         with open(filepath, 'wb') as assembled:
             for i in range(total_chunks):
                 chunk_path = os.path.join(chunk_dir, str(i))
                 if not os.path.exists(chunk_path):
+                    _clear_assembly_progress(upload_id)
                     shutil.rmtree(chunk_dir, ignore_errors=True)
                     if os.path.exists(filepath):
                         os.remove(filepath)
                     return jsonify({'error': f'Missing chunk {i}'}), 400
                 with open(chunk_path, 'rb') as chunk_file:
                     shutil.copyfileobj(chunk_file, assembled)
+                # Free chunk immediately to avoid holding 2x the file size in storage
+                os.remove(chunk_path)
+                pct = int(((i + 1) / total_chunks) * 40)  # 0-40% for assembly
+                _set_assembly_progress(upload_id, 'assembling', f'Writing chunk {i + 1}/{total_chunks}', pct)
 
-        # Clean up chunk directory
+        # Clean up chunk directory (may already be empty)
         shutil.rmtree(chunk_dir, ignore_errors=True)
 
         # Process the assembled file (DICOM validation, ZIP extraction)
+        _set_assembly_progress(upload_id, 'processing', 'Checking file type...', 45)
         uploaded_files = []
 
         is_zip = False
         try:
             with zipfile.ZipFile(filepath, 'r') as test_zip:
-                total_size = sum(info.file_size for info in test_zip.infolist())
+                zip_entries = test_zip.infolist()
+                if len(zip_entries) > 10000:
+                    logger.warning("ZIP file contains too many entries: %s (%d files)", filepath, len(zip_entries))
+                    os.remove(filepath)
+                    return jsonify({'error': 'ZIP file contains too many entries (max 10,000)'}), 413
+                total_size = sum(info.file_size for info in zip_entries)
                 if total_size > 1024 * 1024 * 1024:
                     logger.warning("ZIP file too large when extracted: %s (%d bytes)", filepath, total_size)
                     os.remove(filepath)
                     return jsonify({'error': 'ZIP file too large when extracted'}), 413
 
-                for info in test_zip.infolist():
+                for info in zip_entries:
                     if '..' in info.filename or info.filename.startswith('/') or '\\' in info.filename:
                         logger.warning("Malicious path in ZIP file: %s", info.filename)
                         os.remove(filepath)
@@ -1615,6 +1561,7 @@ def upload_chunk_complete():
             is_zip = False
 
         if is_zip:
+            _set_assembly_progress(upload_id, 'extracting', 'Extracting ZIP archive...', 50)
             extract_dir = os.path.join(session_dir, f'extracted_{target_name}')
             if not safe_makedirs(extract_dir):
                 os.remove(filepath)
@@ -1649,9 +1596,12 @@ def upload_chunk_complete():
             })
 
         # Classify all files as DICOM/non-DICOM in parallel
+        file_count = len(uploaded_files)
+        _set_assembly_progress(upload_id, 'validating', f'Validating {file_count} files...', 70)
         _classify_files_parallel(uploaded_files)
 
         # Clean up non-DICOM files
+        _set_assembly_progress(upload_id, 'cleaning', 'Removing non-DICOM files...', 85)
         deleted_count, deleted_names = cleanup_non_dicom_files(uploaded_files, session_dir, session_id)
 
         dicom_files = [f for f in uploaded_files if f['is_dicom']]
@@ -1667,6 +1617,8 @@ def upload_chunk_complete():
 
         max_names = 50
         truncated_names = deleted_names[:max_names]
+
+        _set_assembly_progress(upload_id, 'complete', 'Done', 100)
 
         return jsonify({
             'success': True,
@@ -1684,6 +1636,7 @@ def upload_chunk_complete():
         })
 
     except Exception as exc:
+        _clear_assembly_progress(upload_id)
         shutil.rmtree(chunk_dir, ignore_errors=True)
         if is_new_session:
             _clear_session_activity(session_id)
@@ -1734,25 +1687,27 @@ def anonymize_files():
         else:
             # Standard mode - process custom rules if provided
             if custom_rules:
+                from dicomanonymizer.simpledicomanonymizer import (
+                    replace, empty, delete, keep as keep_func, replace_UID
+                )
+                action_map = {
+                    'replace': replace,
+                    'empty': empty,
+                    'delete': delete,
+                    'keep': keep_func,
+                    'replace_UID': replace_UID
+                }
                 for tag_str, action in custom_rules.items():
                     try:
-                        # Convert string tag like "(0x0010, 0x0020)" to tuple
-                        tag = eval(tag_str)
-                        # Map action name to function
-                        from dicomanonymizer.simpledicomanonymizer import (
-                            replace, empty, delete, keep as keep_func, replace_UID
-                        )
-                        action_map = {
-                            'replace': replace,
-                            'empty': empty,
-                            'delete': delete,
-                            'keep': keep_func,
-                            'replace_UID': replace_UID
-                        }
+                        # Convert string tag like "(0x0010, 0x0020)" to tuple safely
+                        tag = ast.literal_eval(tag_str)
+                        if not isinstance(tag, tuple) or len(tag) != 2:
+                            continue
+                        if not all(isinstance(v, int) for v in tag):
+                            continue
                         if action in action_map:
                             extra_anonymization_rules[tag] = action_map[action]
-                    except Exception as e:
-                        # Skip invalid rules silently in production
+                    except (ValueError, SyntaxError):
                         continue
         
         # Find all DICOM files and anonymize them while preserving structure
@@ -1824,9 +1779,9 @@ def anonymize_files():
         })
         
     except Exception as e:
+        logger.exception("Anonymization failed for session %s", session_id)
         return jsonify({
-            'error': f'Anonymization failed: {str(e)}', 
-            'traceback': traceback.format_exc()
+            'error': 'Anonymization failed. Please try again or contact support.'
         }), 500
 
 
@@ -1837,6 +1792,9 @@ def download_anonymized(session_id):
     Download anonymized files. Single files are served directly,
     multiple files are packaged in a ZIP archive.
     """
+    if not re.match(r'^[a-f0-9]{32}$', session_id):
+        return jsonify({'error': 'Invalid session ID format'}), 400
+
     output_dir = os.path.join(app.config['OUTPUT_FOLDER'], session_id)
     
     if not os.path.exists(output_dir):
@@ -1906,6 +1864,9 @@ def download_anonymized(session_id):
 @login_required
 def cleanup_session(session_id):
     """Manual session cleanup endpoint."""
+    if not re.match(r'^[a-f0-9]{32}$', session_id):
+        return jsonify({'error': 'Invalid session ID format'}), 400
+
     try:
         # Clean up upload session
         upload_session = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
@@ -1937,9 +1898,8 @@ def status():
     try:
         current_time = time.time()
         active_sessions = []
-        
-        with session_lock:
-            sessions_snapshot = list(session_timestamps.items())
+
+        sessions_snapshot = shared_state.get_sessions_snapshot()
 
         for session_id, timestamp in sessions_snapshot:
             age_minutes = (current_time - timestamp) / 60

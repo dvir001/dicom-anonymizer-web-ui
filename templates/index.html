@@ -1642,6 +1642,18 @@
                 return;
             }
 
+            // Acquire a Web Lock to prevent the browser from throttling this tab
+            // when the user switches to another tab. Without this, XHR progress
+            // events and setInterval timers freeze, making the UI appear stuck.
+            const lockName = `dicom-upload-${tabId}-${Date.now()}`;
+            const lockAbort = new AbortController();
+            if (navigator.locks) {
+                navigator.locks.request(lockName, { signal: lockAbort.signal }, () => {
+                    // Hold the lock until the upload finishes (promise resolved externally)
+                    return new Promise(resolve => { state._releaseLock = resolve; });
+                }).catch(() => { /* lock released or aborted */ });
+            }
+
             const anonymizeBtn = document.getElementById(`anonymizeBtn-${tabId}`);
             const progressContainer = document.getElementById(`uploadProgress-${tabId}`);
             const progressFill = document.getElementById(`progressFill-${tabId}`);
@@ -2045,6 +2057,10 @@
                 state.uploadController = null;
                 hideProgress();
 
+                // Release the Web Lock
+                if (state._releaseLock) { state._releaseLock(); state._releaseLock = null; }
+                try { lockAbort.abort(); } catch (_) {}
+
                 const uploadAreaEl = document.getElementById(`uploadArea-${tabId}`);
                 if (uploadAreaEl) { uploadAreaEl.classList.remove('disabled'); }
 
@@ -2061,6 +2077,10 @@
             if (controller) { controller.active = false; }
             state.uploadController = null;
             hideProgress();
+
+            // Release the Web Lock
+            if (state._releaseLock) { state._releaseLock(); state._releaseLock = null; }
+            try { lockAbort.abort(); } catch (_) {}
 
             // Re-enable upload area
             const uploadAreaDone = document.getElementById(`uploadArea-${tabId}`);
@@ -2452,17 +2472,25 @@
         function downloadAnonymizedFiles(tabId) {
             const state = tabStates[tabId];
             if (state.outputSessionId) {
-                window.location.href = `/download/${state.outputSessionId}`;
+                // Use a temporary <a> element to trigger the download without
+                // navigating away from the page. The server sends
+                // Content-Disposition: attachment, so the browser downloads
+                // instead of navigating.
+                const a = document.createElement('a');
+                a.href = `/download/${state.outputSessionId}`;
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => { try { document.body.removeChild(a); } catch (_) {} }, 1000);
             }
         }
 
         function startOver(tabId) {
             const state = tabStates[tabId];
             
-            // Clean up sessions
-            if (state.outputSessionId) {
-                fetch(`/cleanup/${state.outputSessionId}`);
-            }
+            // Clean up upload session only — output session is kept alive
+            // so downloads can complete. The server's background cleanup
+            // thread will remove it after the session timeout.
             if (state.sessionId) {
                 fetch(`/cleanup/${state.sessionId}`);
             }

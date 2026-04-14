@@ -159,6 +159,27 @@ app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
 app.config['OUTPUT_FOLDER'] = str(OUTPUT_FOLDER)
 app.config['CHUNK_FOLDER'] = str(CHUNK_FOLDER)
 
+# Purge stale data from previous container runs.  On restart the in-memory
+# session tracking is empty so orphaned files would never be cleaned up.
+def _purge_stale_data():
+    purged = 0
+    for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER, CHUNK_FOLDER]:
+        if not folder.exists():
+            continue
+        for child in folder.iterdir():
+            try:
+                if child.is_dir():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink()
+                purged += 1
+            except Exception:
+                logger.warning("Failed to purge stale item: %s", child)
+    if purged:
+        logger.info("Startup purge: removed %d stale items from previous run", purged)
+
+_purge_stale_data()
+
 # Storage management configuration
 MAX_TOTAL_STORAGE = 20 * 1024 * 1024 * 1024  # 20GB total storage limit
 SESSION_TIMEOUT_MINUTES_FILE = int(os.getenv('SESSION_FILE_TIMEOUT_MINUTES', '30'))
@@ -1798,7 +1819,11 @@ def download_anonymized(session_id):
     output_dir = os.path.join(app.config['OUTPUT_FOLDER'], session_id)
     
     if not os.path.exists(output_dir):
-        return jsonify({'error': 'Session not found'}), 404
+        return jsonify({'error': 'Session not found or files have expired. Please re-anonymize.'}), 404
+
+    # Refresh the session timestamp so the cleanup thread doesn't
+    # delete the files while the user is still downloading.
+    _record_session_activity(session_id)
     
     try:
         # Collect all files in the output directory

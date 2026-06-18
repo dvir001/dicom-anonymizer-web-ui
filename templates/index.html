@@ -1705,7 +1705,7 @@
             // Keepalive: ping the server every 2 minutes while uploading so the
             // session doesn't expire mid-upload on large files.
             const keepaliveInterval = setInterval(() => {
-                fetch('/keepalive', { method: 'POST' }).catch(() => {});
+                fetch('/keepalive', { method: 'POST', headers: { 'Accept': 'application/json' } }).catch(() => {});
             }, 2 * 60 * 1000);
 
             // Disable upload area while upload is in progress

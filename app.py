@@ -816,7 +816,7 @@ def _handle_413(exc):
 def keepalive():
     """Refresh the session lifetime so long uploads don't get a mid-upload 401."""
     session['login_time'] = time.time()
-    is_valid, _, remaining_seconds = _current_session_state()
+    _, _, remaining_seconds = _current_session_state()
     return jsonify({'ok': True, 'remaining_seconds': remaining_seconds})
 
 

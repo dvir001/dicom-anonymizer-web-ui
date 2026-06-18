@@ -811,6 +811,15 @@ def _handle_413(exc):
     return jsonify({'error': 'File too large. Maximum upload size is 3 GB.'}), 413
 
 
+@app.route('/keepalive', methods=['POST'])
+@login_required
+def keepalive():
+    """Refresh the session lifetime so long uploads don't get a mid-upload 401."""
+    session['login_time'] = time.time()
+    is_valid, _, remaining_seconds = _current_session_state()
+    return jsonify({'ok': True, 'remaining_seconds': remaining_seconds})
+
+
 @app.route('/health')
 def health_check():
     """Health check endpoint for container monitoring and load balancer checks."""

@@ -1702,6 +1702,12 @@
 
             showProgressState(2, 'Preparing upload...');
 
+            // Keepalive: ping the server every 2 minutes while uploading so the
+            // session doesn't expire mid-upload on large files.
+            const keepaliveInterval = setInterval(() => {
+                fetch('/keepalive', { method: 'POST' }).catch(() => {});
+            }, 2 * 60 * 1000);
+
             // Disable upload area while upload is in progress
             const uploadArea = document.getElementById(`uploadArea-${tabId}`);
             if (uploadArea) {
@@ -1822,8 +1828,7 @@
 
                         if (xhr.status === 401) {
                             const message = (payload && payload.error) || 'Session expired. Please login to continue.';
-                            lockInterface(message);
-                            resolve({ unauthorized: true });
+                            resolve({ unauthorized: true, message });
                             return;
                         }
 
@@ -1876,8 +1881,8 @@
                         }
 
                         if (xhr.status === 401) {
-                            lockInterface((payload && payload.error) || 'Session expired.');
-                            resolve({ unauthorized: true });
+                            const message = (payload && payload.error) || 'Session expired. Please login to continue.';
+                            resolve({ unauthorized: true, message });
                             return;
                         }
 
@@ -1915,7 +1920,7 @@
 
                         const isLastTask = (taskIndex === tasks.length - 1);
                         const outcome = await sendXhr(formData, '/upload', isLastTask);
-                        if (outcome.unauthorized) { uploadOutcome = { unauthorized: true }; break; }
+                        if (outcome.unauthorized) { uploadOutcome = { unauthorized: true, message: outcome.message }; break; }
 
                         const result = outcome.data;
                         if (result && result.success) {
@@ -1959,7 +1964,7 @@
                             }
 
                             const chunkOutcome = await sendXhr(chunkForm, '/upload-chunk');
-                            if (chunkOutcome.unauthorized) { uploadOutcome = { unauthorized: true }; break; }
+                            if (chunkOutcome.unauthorized) { uploadOutcome = { unauthorized: true, message: chunkOutcome.message }; break; }
 
                             const chunkResult = chunkOutcome.data;
                             if (!chunkResult || !chunkResult.success) {
@@ -2034,7 +2039,7 @@
                             clearInterval(assemblyPoller);
                         }
 
-                        if (completeOutcome.unauthorized) { uploadOutcome = { unauthorized: true }; break; }
+                        if (completeOutcome.unauthorized) { uploadOutcome = { unauthorized: true, message: completeOutcome.message }; break; }
 
                         const completeResult = completeOutcome.data;
                         if (completeResult && completeResult.success) {
@@ -2055,6 +2060,7 @@
                 const controller = state.uploadController;
                 if (controller) { controller.active = false; }
                 state.uploadController = null;
+                clearInterval(keepaliveInterval);
                 hideProgress();
 
                 // Release the Web Lock
@@ -2076,6 +2082,7 @@
             const controller = state.uploadController;
             if (controller) { controller.active = false; }
             state.uploadController = null;
+            clearInterval(keepaliveInterval);
             hideProgress();
 
             // Release the Web Lock
@@ -2092,6 +2099,7 @@
                     anonymizeBtn.textContent = ANONYMIZE_BTN_LABEL;
                 }
                 enableUploadForTab(tabId);
+                lockInterface(uploadOutcome.message || 'Session expired. Please login to continue.');
                 return;
             }
 

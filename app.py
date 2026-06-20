@@ -67,6 +67,12 @@ app.config['MAX_CONTENT_LENGTH'] = 3 * 1024 * 1024 * 1024  # 3GB max file size
 # Session cookie security hardening
 app.config['SESSION_COOKIE_HTTPONLY'] = True      # Prevent JavaScript access to session cookie
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'     # CSRF protection while allowing SSO redirects
+# Only write the session cookie when the session actually changes. Without this,
+# Flask re-sends the cookie on every response (e.g. each concurrent /upload-chunk),
+# serializing the login_time it read at request start. An in-flight upload finishing
+# just after /keepalive would then overwrite the refreshed login_time with a stale
+# value, defeating the keepalive and letting the session expire mid-upload.
+app.config['SESSION_REFRESH_EACH_REQUEST'] = False
 if os.getenv('FLASK_ENV', 'development').lower() == 'production':
     app.config['SESSION_COOKIE_SECURE'] = True     # Only send cookie over HTTPS in production
 

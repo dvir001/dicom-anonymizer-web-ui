@@ -67,6 +67,12 @@ app.config['MAX_CONTENT_LENGTH'] = 3 * 1024 * 1024 * 1024  # 3GB max file size
 # Session cookie security hardening
 app.config['SESSION_COOKIE_HTTPONLY'] = True      # Prevent JavaScript access to session cookie
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'     # CSRF protection while allowing SSO redirects
+# Only write the session cookie when the session actually changes. Without this,
+# Flask re-sends the cookie on every response (e.g. each concurrent /upload-chunk),
+# serializing the login_time it read at request start. An in-flight upload finishing
+# just after /keepalive would then overwrite the refreshed login_time with a stale
+# value, defeating the keepalive and letting the session expire mid-upload.
+app.config['SESSION_REFRESH_EACH_REQUEST'] = False
 if os.getenv('FLASK_ENV', 'development').lower() == 'production':
     app.config['SESSION_COOKIE_SECURE'] = True     # Only send cookie over HTTPS in production
 
@@ -809,6 +815,15 @@ cleanup_thread.start()
 def _handle_413(exc):
     logger.error("413 Request Entity Too Large: %s", exc)
     return jsonify({'error': 'File too large. Maximum upload size is 3 GB.'}), 413
+
+
+@app.route('/keepalive', methods=['POST'])
+@login_required
+def keepalive():
+    """Refresh the session lifetime so long uploads don't get a mid-upload 401."""
+    session['login_time'] = time.time()
+    _, _, remaining_seconds = _current_session_state()
+    return jsonify({'ok': True, 'remaining_seconds': remaining_seconds})
 
 
 @app.route('/health')

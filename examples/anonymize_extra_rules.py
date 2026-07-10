@@ -1,7 +1,7 @@
 import argparse
 
-from dicomanonymizer.dicom_anonymization_databases.dicomfields_2023 import ALL_TAGS
 from dicomanonymizer import anonymize, keep
+from dicomanonymizer.dicom_anonymization_databases.dicomfields_2023 import ALL_TAGS
 
 
 def main():

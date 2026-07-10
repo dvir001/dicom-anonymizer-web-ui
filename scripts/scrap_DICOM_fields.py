@@ -115,7 +115,7 @@ def create_DICOM_fields(profiles):
 
 def main(
     url="https://dicom.nema.org/medical/dicom/current/output/chtml/part15/chapter_e.html",
-    output_path="dicomanonymizer/dicomfields_2024b.py",
+    output_path="dicomanonymizer/dicom_anonymization_databases/dicomfields_2024b.py",
 ):
     # As of 2024.05.14, the current version of DICOM spec is 2024b.
     profiles = scrap_profiles(url)

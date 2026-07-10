@@ -12,7 +12,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="dicom_anonymizer",  # Required
-    version="1.0.13-1",  # Required
+    version="2.0.0",  # Required
     author="Laurenn Lam",
     author_email="laurenn.lam@kitware.com",
     description="Program to anonymize dicom files with default and custom rules",
@@ -31,7 +31,7 @@ setup(
         "Programming Language :: Python",
     ],
     keywords=["dicom", "anonymizer", "medical"],
-    python_requires=">=3.6",
+    python_requires=">=3.10",
     packages=find_packages(),  # Required
     # Define an executable calls dicom-anonymizer from a specific file
     entry_points={
@@ -44,7 +44,5 @@ setup(
     # For an analysis of "install_requires" vs pip's requirements files see:
     # https://packaging.python.org/en/latest/guides/distributing-packages-using-setuptools/
     install_requires=["pydicom", "tqdm"],  # Optional
-    extras_require={
-        "dev": ["pytest", "bs4", "fire", "requests", "pre-commit", "ruff===0.12.10"]
-    },
+    extras_require={"dev": ["pytest", "bs4", "fire", "requests", "pre-commit", "ruff"]},
 )

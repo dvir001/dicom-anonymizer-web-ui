@@ -1,11 +1,14 @@
-from dicomanonymizer import anonymize_dataset
-from pydicom.data import get_testdata_file
+import copy
+
 from pydicom import dcmread
+from pydicom.data import get_testdata_file
+
+from dicomanonymizer import anonymize_dataset
 
 
 def main():
     original_ds = dcmread(get_testdata_file("CT_small.dcm"))
-    data_ds = original_ds.copy()
+    data_ds = copy.deepcopy(original_ds)
     anonymize_dataset(
         data_ds, delete_private_tags=True
     )  # Anonymization is done in-place

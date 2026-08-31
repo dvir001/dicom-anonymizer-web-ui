@@ -244,7 +244,15 @@ def empty_element(element):
     elif element.VR == "SQ":
         for sub_dataset in element.value:
             for sub_element in sub_dataset.elements():
-                empty_element(sub_element)
+                if isinstance(sub_element, pydicom.dataelem.RawDataElement):
+                    # RawDataElement is a NamedTuple, so cannot set its value
+                    # attribute. Convert it to a DataElement, empty value, and
+                    # set it back. Same fix as replace_element().
+                    e2 = pydicom.dataelem.DataElement_from_raw(sub_element)
+                    empty_element(e2)
+                    sub_dataset.add(e2)
+                else:
+                    empty_element(sub_element)
     else:
         raise NotImplementedError(
             "Not anonymized. VR {} not yet implemented.".format(element.VR)

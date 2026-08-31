@@ -182,3 +182,35 @@ def test_anonymization_of_vrs_not_in_dcm_example_files_in_a_sequence():
     anonymize_dataset(data)
 
     assert data[(0x0040, 0xA730)][0][(0x0042, 0x0011)].value == b"Anonymized"
+
+
+def test_anonymization_of_raw_data_element_in_a_sequence(tmp_path):
+    """pydicom keeps sub-elements as RawDataElement until they are accessed,
+    which is how datasets read from disk or received from a PACS arrive.
+    Assigning to RawDataElement.value raises AttributeError, so empty_element()
+    needs the same conversion replace_element() already does. Issue #85."""
+    item = pydicom.Dataset()
+    item.add_new((0x0040, 0xA123), "PN", "Annie de la Fontaine")
+
+    data = pydicom.Dataset()
+    data.file_meta = pydicom.dataset.FileMetaDataset()
+    data.file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+    data.file_meta.MediaStorageSOPClassUID = pydicom.uid.SecondaryCaptureImageStorage
+    data.file_meta.MediaStorageSOPInstanceUID = "1.2.3.4.5"
+    data.SOPClassUID = pydicom.uid.SecondaryCaptureImageStorage
+    data.SOPInstanceUID = "1.2.3.4.5"
+    # Verifying Observer Identification Code Sequence, action Z
+    data.add_new((0x0040, 0xA088), "SQ", pydicom.Sequence([item]))
+
+    # Round-trip through a file so the sub-element is genuinely raw
+    path = tmp_path / "raw.dcm"
+    pydicom.dcmwrite(path, data, enforce_file_format=True)
+    reread = pydicom.dcmread(path)
+    assert any(
+        isinstance(e, pydicom.dataelem.RawDataElement)
+        for e in reread[(0x0040, 0xA088)][0].elements()
+    ), "test precondition: sub-element should still be raw"
+
+    anonymize_dataset(reread)
+
+    assert reread[(0x0040, 0xA088)][0][(0x0040, 0xA123)].value == ""

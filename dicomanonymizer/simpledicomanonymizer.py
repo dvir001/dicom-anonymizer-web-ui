@@ -138,29 +138,40 @@ def replace_element_time(element):
 def replace_element(element):
     """
     Replace element's value according to it's VR:
-    - LO, LT, SH, PN, CS, ST, UT: replace with 'Anonymized'
+    - AE, CS, LO, LT, PN, SH, ST, UC, UT: replace with 'ANONYMIZED'
     - UI: cf replace_element_UID
+    - AS: value will be replaced by '000Y'
+    - UR: value will be replaced by 'http://anonymized.invalid'
     - DS and IS: value will be replaced by '0'
     - FD, FL, SS, US, SL, UL: value will be replaced by 0
     - DA: value will be replaced by '00010101'
     - DT: value will be replaced by '00010101010101.000000+0000'
     - TM: value will be replaced by '000000.00'
-    - UN: value will be replaced by b'Anonymized' (binary string)
+    - OB and UN: value will be replaced by b'Anonymized' (binary string)
     - SQ: call replace_element for all sub elements
 
     See https://laurelbridge.com/pdf/Dicom-Anonymization-Conformance-Statement.pdf
     """
-    if element.VR in ("LO", "LT", "SH", "PN", "CS", "ST", "UT"):
+    if element.VR in ("AE", "CS", "LO", "LT", "PN", "SH", "ST", "UC", "UT"):
         element.value = "ANONYMIZED"  # CS VR accepts only uppercase characters
     elif element.VR == "UI":
         replace_element_UID(element)
+    elif element.VR == "AS":
+        # AS is a fixed 4-byte string of the form nnnD, nnnW, nnnM or nnnY.
+        element.value = "000Y"
+    elif element.VR == "UR":
+        # .invalid is reserved for this purpose by RFC 2606.
+        element.value = "http://anonymized.invalid"
     elif element.VR in ("DS", "IS"):
         element.value = "0"
     elif element.VR in ("FD", "FL", "SS", "US", "SL", "UL"):
         element.value = 0
     elif element.VR in ("DT", "DA", "TM"):
         replace_date_time_element(element)
-    elif element.VR == "UN":
+    elif element.VR in ("OB", "UN"):
+        # OB is Other Byte, an uninterpreted stream of bytes, so there is no
+        # meaningful dummy for it: any even-length byte string is a valid
+        # value. Reuse the one already used for UN.
         element.value = b"Anonymized"
     elif element.VR == "SQ":
         for sub_dataset in element.value:
@@ -193,13 +204,13 @@ def replace(dataset, tag):
 def empty_element(element):
     """
     Clean element according to the element's VR:
-    - SH, PN, UI, LO, LT, CS, AS, ST and UT: value will be set to ''
+    - AE, AS, CS, LO, LT, PN, SH, ST, UC, UI, UR and UT: value will be set to ''
     - DA: value will be replaced by '00010101'
     - DT: value will be replaced by '00010101010101.000000+0000'
     - TM: value will be replaced by '000000.00'
     - UL, FL, FD, SL, SS and US: value will be replaced by 0
     - DS and IS: value will be replaced by '0'
-    - UN: value will be replaced by: b'' (binary string)
+    - OB and UN: value will be replaced by: b'' (binary string)
     - SQ: all subelement will be called with "empty_element"
 
     Date and time related VRs are not emptied by replacing their values with a empty string to keep
@@ -207,7 +218,20 @@ def empty_element(element):
 
     See: https://laurelbridge.com/pdf/Dicom-Anonymization-Conformance-Statement.pdf
     """
-    if element.VR in ("SH", "PN", "UI", "LO", "LT", "CS", "AS", "ST", "UT"):
+    if element.VR in (
+        "AE",
+        "AS",
+        "CS",
+        "LO",
+        "LT",
+        "PN",
+        "SH",
+        "ST",
+        "UC",
+        "UI",
+        "UR",
+        "UT",
+    ):
         element.value = ""
     elif element.VR in ("DT", "DA", "TM"):
         replace_date_time_element(element)
@@ -215,7 +239,7 @@ def empty_element(element):
         element.value = 0
     elif element.VR in ("DS", "IS"):
         element.value = "0"
-    elif element.VR == "UN":
+    elif element.VR in ("OB", "UN"):
         element.value = b""
     elif element.VR == "SQ":
         for sub_dataset in element.value:

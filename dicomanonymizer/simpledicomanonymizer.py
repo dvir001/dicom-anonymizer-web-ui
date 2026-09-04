@@ -1,9 +1,9 @@
-import pydicom
 import re
-
-from enum import Enum
-from typing import Callable, List, Union
+from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum
+
+import pydicom
 
 from dicomanonymizer.dicomfields_selector import dicom_anonymization_database_selector
 from dicomanonymizer.format_tag import tag_to_hex_strings
@@ -15,7 +15,7 @@ dictionary = {}
 # Regexp function
 
 
-def regexp(options: Union[list, dict]):
+def regexp(options: list | dict):
     """
     Apply a regexp method to the dataset
 
@@ -45,7 +45,7 @@ def regexp(options: Union[list, dict]):
     return apply_regexp
 
 
-def replace_with_value(options: Union[list, dict]):
+def replace_with_value(options: list | dict):
     """
     Replace the given tag with a predefined value.
 
@@ -187,7 +187,7 @@ def replace_element(element):
                     replace_element(sub_element)
     else:
         raise NotImplementedError(
-            "Not anonymized. VR {} not yet implemented.".format(element.VR)
+            f"Not anonymized. VR {element.VR} not yet implemented."
         )
 
 
@@ -255,7 +255,7 @@ def empty_element(element):
                     empty_element(sub_element)
     else:
         raise NotImplementedError(
-            "Not anonymized. VR {} not yet implemented.".format(element.VR)
+            f"Not anonymized. VR {element.VR} not yet implemented."
         )
 
 
@@ -293,7 +293,6 @@ def delete(dataset, tag):
 
 def keep(dataset, tag):
     """K - keep (unchanged for non-sequence attributes, cleaned for sequences)"""
-    pass
 
 
 def replace_UID(dataset, tag):
@@ -404,7 +403,7 @@ def initialize_actions_2024b() -> dict:
 def anonymize_dicom_file(
     in_file: str,
     out_file: str,
-    extra_anonymization_rules: dict = None,
+    extra_anonymization_rules: dict | None = None,
     delete_private_tags: bool = True,
     base_rules_gen: Callable = initialize_actions,
 ) -> None:
@@ -463,7 +462,7 @@ def get_private_tag(dataset, tag):
 
 def get_private_tags(
     anonymization_actions: dict, dataset: pydicom.Dataset
-) -> List[dict]:
+) -> list[dict]:
     """
     Extract private tag as a list of object with creator and element
 
@@ -472,7 +471,7 @@ def get_private_tags(
     :return Array of object
     """
     private_tags = []
-    for tag in anonymization_actions.keys():
+    for tag in anonymization_actions:
         try:
             element = dataset.get(tag)
         except KeyError:
@@ -486,7 +485,7 @@ def get_private_tags(
 
 def anonymize_dataset(
     dataset: pydicom.Dataset,
-    extra_anonymization_rules: dict = None,
+    extra_anonymization_rules: dict | None = None,
     delete_private_tags: bool = True,
     base_rules_gen: Callable = initialize_actions,
 ) -> None:
@@ -507,7 +506,7 @@ def anonymize_dataset(
 
     for tag, action in current_anonymization_actions.items():
 
-        def range_callback(dataset, data_element):
+        def range_callback(dataset, data_element, tag=tag, action=action):
             if (
                 data_element.tag.group & tag[2] == tag[0] & tag[2]
                 and data_element.tag.element & tag[3] == tag[1] & tag[3]

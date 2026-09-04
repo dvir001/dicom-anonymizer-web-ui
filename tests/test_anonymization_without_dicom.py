@@ -111,3 +111,106 @@ def test_switching_dicom_versions():
     assert (
         data_2024b[(0x0010, 0x0020)].value == "ANONYMIZED"
     )  # 2024b differs from the default
+
+
+def test_anonymization_of_vrs_not_in_dcm_example_files():
+    """Tags of the confidentiality profile whose VRs do not appear in the .dcm
+    example files used by test_anon.py, so they are not covered there."""
+    fields = [
+        {  # Replaced with b'Anonymized', action D. Type 1 in its IODs, so it
+            # must keep a non-zero length value rather than be removed.
+            "id": (0x0042, 0x0011),  # Encapsulated Document
+            "type": "OB",
+            "value": b"%PDF-1.4 payload",
+        },
+        {  # Replaced by ANONYMIZED, action D
+            "id": (0x2100, 0x0140),  # Destination AE
+            "type": "AE",
+            "value": "REAL_AE_TITLE",
+        },
+        {  # Replaced by ANONYMIZED, action D
+            "id": (0x0018, 0x9367),  # X-Ray Source ID
+            "type": "UC",
+            "value": "SOURCE-SERIAL-9931",
+        },
+        {  # Replaced by a reserved URI, action D
+            "id": (0x0072, 0x0071),  # Selector UR Value
+            "type": "UR",
+            "value": "http://hospital.example/patient/1",
+        },
+        {  # Replaced by 000Y, action D. AS is a fixed 4-byte string, so the
+            # generic ANONYMIZED value would be invalid for it.
+            "id": (0x0072, 0x005F),  # Selector AS Value
+            "type": "AS",
+            "value": "045Y",
+        },
+        {  # Replaced with empty value, action Z
+            "id": (0x3010, 0x001B),  # Device Alternate Identifier
+            "type": "UC",
+            "value": "DEVICE-77",
+        },
+    ]
+
+    # Create a readable dataset for pydicom
+    data = pydicom.Dataset()
+
+    # Add each field into the dataset
+    for field in fields:  # sourcery skip: no-loop-in-tests
+        data.add_new(field["id"], field["type"], field["value"])
+
+    anonymize_dataset(data)
+
+    assert data[(0x0042, 0x0011)].value == b"Anonymized"
+    assert data[(0x2100, 0x0140)].value == "ANONYMIZED"
+    assert data[(0x0018, 0x9367)].value == "ANONYMIZED"
+    assert data[(0x0072, 0x0071)].value == "http://anonymized.invalid"
+    assert data[(0x0072, 0x005F)].value == "000Y"
+    assert data[(0x3010, 0x001B)].value == ""
+
+
+def test_anonymization_of_vrs_not_in_dcm_example_files_in_a_sequence():
+    """replace_element() recurses into sequences without consulting the action
+    map, so a sub-element VR missing from its VR chain used to raise even
+    though the enclosing tag was handled."""
+    item = pydicom.Dataset()
+    item.add_new((0x0042, 0x0011), "OB", b"nested payload")
+
+    data = pydicom.Dataset()
+    # Content Sequence, action D
+    data.add_new((0x0040, 0xA730), "SQ", pydicom.Sequence([item]))
+
+    anonymize_dataset(data)
+
+    assert data[(0x0040, 0xA730)][0][(0x0042, 0x0011)].value == b"Anonymized"
+
+
+def test_anonymization_of_raw_data_element_in_a_sequence(tmp_path):
+    """pydicom keeps sub-elements as RawDataElement until they are accessed,
+    which is how datasets read from disk or received from a PACS arrive.
+    Assigning to RawDataElement.value raises AttributeError, so empty_element()
+    needs the same conversion replace_element() already does. Issue #85."""
+    item = pydicom.Dataset()
+    item.add_new((0x0040, 0xA123), "PN", "Annie de la Fontaine")
+
+    data = pydicom.Dataset()
+    data.file_meta = pydicom.dataset.FileMetaDataset()
+    data.file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+    data.file_meta.MediaStorageSOPClassUID = pydicom.uid.SecondaryCaptureImageStorage
+    data.file_meta.MediaStorageSOPInstanceUID = "1.2.3.4.5"
+    data.SOPClassUID = pydicom.uid.SecondaryCaptureImageStorage
+    data.SOPInstanceUID = "1.2.3.4.5"
+    # Verifying Observer Identification Code Sequence, action Z
+    data.add_new((0x0040, 0xA088), "SQ", pydicom.Sequence([item]))
+
+    # Round-trip through a file so the sub-element is genuinely raw
+    path = tmp_path / "raw.dcm"
+    pydicom.dcmwrite(path, data, enforce_file_format=True)
+    reread = pydicom.dcmread(path)
+    assert any(
+        isinstance(e, pydicom.dataelem.RawDataElement)
+        for e in reread[(0x0040, 0xA088)][0].elements()
+    ), "test precondition: sub-element should still be raw"
+
+    anonymize_dataset(reread)
+
+    assert reread[(0x0040, 0xA088)][0][(0x0040, 0xA123)].value == ""

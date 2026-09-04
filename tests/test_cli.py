@@ -1,8 +1,8 @@
-import pytest
-import pydicom
 import sys
-
 from unittest.mock import patch
+
+import pydicom
+import pytest
 
 from dicomanonymizer.anonymizer import main
 from dicomanonymizer.simpledicomanonymizer import empty

@@ -1,16 +1,16 @@
 import copy
+import warnings
+from functools import cache
+from pathlib import Path
+
 import pydicom
 import pytest
-import warnings
-
-from pathlib import Path
-from functools import lru_cache
 from pydicom import dcmread
-from pydicom.config import settings, IGNORE
+from pydicom.config import IGNORE, settings
 from pydicom.data import get_testdata_files
 
-from dicomanonymizer.simpledicomanonymizer import anonymize_dataset, keep
 from dicomanonymizer.dicom_anonymization_databases import dicomfields_2023
+from dicomanonymizer.simpledicomanonymizer import anonymize_dataset, keep
 
 # Ignore warnings from pydicom validation
 settings.writing_validation_mode = IGNORE
@@ -33,7 +33,7 @@ def get_all_failed():  # sourcery skip: inline-immediately-returned-variable
     return dcmread_failed
 
 
-@lru_cache(maxsize=None)
+@cache
 def get_passing_files():
     all_files = get_testdata_files("*.dcm")
     all_failed = get_all_failed()
@@ -85,13 +85,12 @@ def test_deleted_tags_are_removed(orig_anon_dataset):
 
     for tt in deleted_tags:  # sourcery skip: no-loop-in-tests
         if (
-            len(tt) == 2 and tt in orig_ds
-        ):  # sourcery skip: merge-nested-ifs, no-conditionals-in-tests
+            len(tt) == 2 and tt in orig_ds and orig_ds[tt].VR != "DA"
             # Date type are replaced instead of deleted. See README.md.
-            if orig_ds[tt].VR != "DA":  # sourcery skip: no-conditionals-in-tests
-                assert tt not in anon_ds, (
-                    f"({tt[0]:04X},{tt[1]:04x}):{orig_ds[tt].value}->{anon_ds[tt].value}"
-                )
+        ):  # sourcery skip: merge-nested-ifs, no-conditionals-in-tests
+            assert tt not in anon_ds, (
+                f"({tt[0]:04X},{tt[1]:04x}):{orig_ds[tt].value}->{anon_ds[tt].value}"
+            )
 
 
 changed_tags = (

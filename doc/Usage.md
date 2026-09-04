@@ -130,7 +130,7 @@ def main():
     def set_date_to_year(dataset, tag):
         element = dataset.get(tag)
         if element is not None:
-            element.value = f"{element.value[:4]}0101" # YYYYMMDD format
+            element.value = f"{element.value[:4]}0101"  # YYYYMMDD format
 
     # ALL_TAGS variable is defined on file dicomfields.py
     # the 'keep' method is already defined into the dicom-anonymizer
@@ -138,7 +138,9 @@ def main():
     for i in ALL_TAGS:
         extra_anonymization_rules[i] = keep
 
-    extra_anonymization_rules[(0x0010, 0x0030)] = set_date_to_year # Patient's Birth Date
+    extra_anonymization_rules[(0x0010, 0x0030)] = (
+        set_date_to_year  # Patient's Birth Date
+    )
 
     # Launch the anonymization
     anonymize(
@@ -167,25 +169,26 @@ import pydicom
 
 from dicomanonymizer import anonymize_dataset
 
+
 def main():
 
     # Create a list of tags object that should contains id, type and value
     fields = [
-        { # Replaced by Anonymized
-        'id': (0x0040, 0xA123),
-        'type': 'LO',
-        'value': 'Annie de la Fontaine',
+        {  # Replaced by Anonymized
+            "id": (0x0040, 0xA123),
+            "type": "LO",
+            "value": "Annie de la Fontaine",
         },
-        { # Replaced with empty value
-        'id': (0x0008, 0x0050),
-        'type': 'TM',
-        'value': 'bar',
+        {  # Replaced with empty value
+            "id": (0x0008, 0x0050),
+            "type": "TM",
+            "value": "bar",
         },
-        { # Deleted
-        'id': (0x0018, 0x4000),
-        'type': 'VR',
-        'value': 'foo',
-        }
+        {  # Deleted
+            "id": (0x0018, 0x4000),
+            "type": "VR",
+            "value": "foo",
+        },
     ]
 
     # Create a readable dataset for pydicom
@@ -193,9 +196,10 @@ def main():
 
     # Add each field into the dataset
     for field in fields:
-        data.add_new(field['id'], field['type'], field['value'])
+        data.add_new(field["id"], field["type"], field["value"])
 
     anonymize_dataset(data)
+
 
 if __name__ == "__main__":
     main()

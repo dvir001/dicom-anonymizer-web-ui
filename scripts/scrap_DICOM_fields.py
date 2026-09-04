@@ -4,12 +4,11 @@ Download a web page and try to scrap the DICOM fields and their anonymization co
 Written by Mohammad Khawar Zia
 """
 
+from collections import defaultdict
+
 import fire
 import requests
-
-from collections import defaultdict
 from bs4 import BeautifulSoup
-
 
 dicom_fields_header = """# Tags anonymized in DICOM standard
 # Documentation for groups meaning can be found in default associated actions.

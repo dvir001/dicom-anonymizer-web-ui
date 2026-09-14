@@ -2,8 +2,6 @@ services:
   redis:
     image: redis:7-alpine
     container_name: ${REDIS_CONTAINER_NAME:-dicom-anonymizer-redis}
-    labels:
-        com.docker.compose.project: "${COMPOSE_PROJECT_NAME:-docker}"
     command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
     mem_limit: ${REDIS_MEMORY_LIMIT:-512M}
     cpus: ${REDIS_CPU_LIMIT:-0.25}
@@ -20,8 +18,6 @@ services:
   dicom-anonymizer:
     build: .
     container_name: ${CONTAINER_NAME:-dicom-anonymizer-app}
-    labels:
-        com.docker.compose.project: "${COMPOSE_PROJECT_NAME:-docker}"
     depends_on:
       redis:
         condition: service_healthy
@@ -33,7 +29,8 @@ services:
       - AZURE_TENANT_ID=${AZURE_TENANT_ID:-}
       - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET:-}
       - AZURE_REDIRECT_PATH=${AZURE_REDIRECT_PATH:-/auth/callback}
-      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-fallback-secret-key}
+      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY to a persistent 64-character random value}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
       # Session configuration (authentication vs file storage timeouts)
       - SESSION_TIMEOUT_MINUTES=${SESSION_TIMEOUT_MINUTES:-60}
       - SESSION_FILE_TIMEOUT_MINUTES=${SESSION_FILE_TIMEOUT_MINUTES:-30}

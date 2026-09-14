@@ -30,7 +30,6 @@ import json
 import ast
 import traceback
 import uuid as _uuid_mod
-from urllib.parse import quote
 from functools import wraps
 from dotenv import load_dotenv
 from pathlib import Path
@@ -56,8 +55,10 @@ PROJECT_ROOT = Path(os.getenv('DICOM_APP_ROOT', Path.cwd()))
 app = Flask(__name__)
 _secret_key = os.getenv('SECRET_KEY')
 if not _secret_key:
+    if os.getenv('FLASK_ENV', 'development').lower() == 'production':
+        raise RuntimeError("SECRET_KEY must be set in production")
     _secret_key = secrets.token_hex(32)
-    logger.warning("SECRET_KEY is not set; generated ephemeral secret key for this process")
+    logger.warning("SECRET_KEY is not set; generated ephemeral development key")
 elif len(_secret_key) < 32:
     logger.warning("SECRET_KEY is shorter than 32 characters; consider using a 64-character random string")
 
@@ -873,11 +874,15 @@ def health_check():
 
 @app.route('/')
 def index():
-    """Main application page with inline authentication modal."""
+    """Main application page; unauthenticated visitors are sent straight to Azure AD."""
     is_authenticated, _, remaining_seconds = _current_session_state()
+    # Set by failed sign-in paths so a broken login can't bounce between here and Azure forever.
+    login_failed = request.args.get('login_error') == '1'
 
     if not is_authenticated:
         session.clear()
+        if AZURE_CLIENT_ID and AZURE_TENANT_ID and not login_failed:
+            return redirect(secure_url_for('login'))
 
     existing_sessions: list[dict] = []
     user_display_name = session.get('user_name', '')
@@ -907,7 +912,8 @@ def index():
         session_remaining_seconds=remaining_seconds,
         existing_sessions=existing_sessions,
         user_display_name=user_display_name,
-        azure_configured=bool(AZURE_CLIENT_ID and AZURE_TENANT_ID)
+        azure_configured=bool(AZURE_CLIENT_ID and AZURE_TENANT_ID),
+        login_failed=login_failed
     )
 
 
@@ -934,7 +940,7 @@ def login():
         if _request_wants_json():
             return jsonify({'error': 'Failed to start Azure AD login. Check server configuration.'}), 500
         flash('Failed to start Azure AD login. Contact your administrator.', 'danger')
-        return redirect(secure_url_for('index'))
+        return redirect(secure_url_for('index', login_error=1))
 
     # Store the flow in session so we can complete it in the callback
     session['auth_flow'] = flow
@@ -942,7 +948,7 @@ def login():
     if not auth_uri:
         logger.error("MSAL auth flow did not return an auth_uri")
         flash('Azure AD login configuration error. Contact your administrator.', 'danger')
-        return redirect(secure_url_for('index'))
+        return redirect(secure_url_for('index', login_error=1))
 
     security_logger.info("Redirecting user to Azure AD login")
     return redirect(auth_uri)
@@ -955,7 +961,7 @@ def auth_callback():
     if not flow:
         security_logger.warning("Auth callback received without a pending auth flow")
         flash('Authentication flow expired. Please try again.', 'warning')
-        return redirect(secure_url_for('index'))
+        return redirect(secure_url_for('index', login_error=1))
 
     try:
         result = _build_msal_app().acquire_token_by_auth_code_flow(
@@ -965,7 +971,7 @@ def auth_callback():
     except Exception:
         logger.exception("Error acquiring token from Azure AD")
         flash('Authentication failed. Please try again.', 'danger')
-        return redirect(secure_url_for('index'))
+        return redirect(secure_url_for('index', login_error=1))
 
     if 'error' in result:
         error_desc = result.get('error_description', result.get('error', 'Unknown error'))
@@ -973,7 +979,7 @@ def auth_callback():
         # Sanitize error description to prevent reflected content in flash messages
         safe_error = str(error_desc)[:200].replace('<', '&lt;').replace('>', '&gt;')
         flash(f'Authentication failed: {safe_error}', 'danger')
-        return redirect(secure_url_for('index'))
+        return redirect(secure_url_for('index', login_error=1))
 
     # Authentication succeeded — set up the session
     id_token_claims = result.get('id_token_claims', {})
@@ -996,48 +1002,6 @@ def auth_callback():
     )
 
     flash(f'Welcome, {user_name}!', 'success')
-    return redirect(secure_url_for('index'))
-
-
-@app.route('/logout', methods=['POST'])
-def logout():
-    """User logout endpoint with session cleanup and Azure AD sign-out.
-    POST-only to prevent CSRF via GET requests (e.g. <img src='/logout'>).
-    """
-    user_sessions = session.get('user_sessions', [])
-
-    for tracked_session in user_sessions:
-        try:
-            upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], tracked_session)
-            output_dir = os.path.join(app.config['OUTPUT_FOLDER'], tracked_session)
-
-            if os.path.exists(upload_dir):
-                shutil.rmtree(upload_dir)
-            if os.path.exists(output_dir):
-                shutil.rmtree(output_dir)
-
-            _clear_session_activity(tracked_session)
-        except Exception:
-            logger.exception("Error cleaning up user session %s on logout", tracked_session)
-
-    session.clear()
-
-    if _request_wants_json():
-        return jsonify({'success': True}), 200
-
-    # Redirect to Azure AD logout to end the SSO session as well
-    if AZURE_AUTHORITY:
-        post_logout_redirect = request.url_root.rstrip('/')
-        forwarded_proto = request.headers.get('X-Forwarded-Proto')
-        if forwarded_proto:
-            post_logout_redirect = post_logout_redirect.replace('http://', f'{forwarded_proto}://', 1)
-        azure_logout_url = (
-            f"{AZURE_AUTHORITY}/oauth2/v2.0/logout"
-            f"?post_logout_redirect_uri={quote(post_logout_redirect, safe='')}"
-        )
-        return redirect(azure_logout_url)
-
-    flash('You have been logged out.', 'info')
     return redirect(secure_url_for('index'))
 
 

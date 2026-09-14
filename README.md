@@ -103,10 +103,26 @@ python app.py
 For production deployment, the Docker setup includes:
 - Nginx reverse proxy configuration for SSL termination
 - Health checks and monitoring
-- Persistent volume mounts for uploads
+- Automatic cleanup of temporary uploads and outputs
 - Security hardening and environment isolation
 
-Configure the `.env` file with your production settings and domain information.
+Configure the `.env` file with your production settings and domain information. Generate
+`SECRET_KEY` once and keep the same value across every rebuild; changing it invalidates all
+browser sessions:
+
+```bash
+openssl rand -hex 32
+```
+
+Set the generated value as `SECRET_KEY` in `.env` or in the Portainer stack environment,
+then deploy with:
+
+```bash
+docker compose up -d --build
+```
+
+`docker compose down` is unnecessary for routine rebuilds and discards active temporary
+uploads and Redis state.
 
 #### Nginx Configuration
 The application includes automatic HTTPS detection when behind a reverse proxy. Ensure your nginx configuration includes the necessary proxy headers:

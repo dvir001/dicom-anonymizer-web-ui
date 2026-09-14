@@ -837,8 +837,9 @@
     <div id="loginOverlay" class="login-overlay{% if is_authenticated %} hidden{% endif %}">
         <div class="login-modal">
             <h2>🔐 Secure Access Required</h2>
-            <p>Sign in with your Microsoft account to manage anonymization tasks.</p>
             {% if azure_configured %}
+            {% if login_failed %}
+            <p>Sign-in did not complete. Please try again.</p>
             <a href="/login" class="ms-login-btn" id="loginButton">
                 <svg viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
                     <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
@@ -848,6 +849,9 @@
                 </svg>
                 Sign in with Microsoft
             </a>
+            {% else %}
+            <p>Redirecting to Microsoft sign-in…</p>
+            {% endif %}
             {% else %}
             <div class="login-error">Azure AD SSO is not configured. Contact your administrator to set up AZURE_CLIENT_ID and AZURE_TENANT_ID.</div>
             {% endif %}
@@ -861,7 +865,6 @@
             <p class="banner-text">Secure batch anonymization with ZIP extraction and folder preservation.</p>
             <div class="top-bar-actions">
                 <button type="button" class="btn secondary" id="aboutButton">ℹ️ About</button>
-                <button id="logoutButton" type="button" class="btn secondary{% if not is_authenticated %} hidden{% endif %}">🚪 Logout</button>
             </div>
         </div>
 
@@ -880,7 +883,7 @@
                     <li><strong>ZIP Archives:</strong> Automatically extracts and processes DICOM files from ZIP archives</li>
                     <li><strong>Batch Processing:</strong> Upload multiple files at once, add more before processing</li>
                     <li><strong>Structure Preservation:</strong> Maintains original folder hierarchy in anonymized output</li>
-                    <li><strong>Auto-Cleanup:</strong> Files are automatically deleted after 30 minutes or when you logout</li>
+                    <li><strong>Auto-Cleanup:</strong> Files are automatically deleted after 30 minutes</li>
                     <li><strong>Storage Management:</strong> 20GB total storage with automatic space management</li>
                 </ul>
                 <div class="info-modal-close">
@@ -965,7 +968,8 @@
             'sessionRemainingSeconds': session_remaining_seconds,
             'existingSessions': existing_sessions,
             'userDisplayName': user_display_name,
-            'azureConfigured': azure_configured
+            'azureConfigured': azure_configured,
+            'loginFailed': login_failed
         } | tojson }}
     </script>
 
@@ -977,7 +981,6 @@
         const appContainer = document.getElementById('appContainer');
         const loginButton = document.getElementById('loginButton');
         const loginError = document.getElementById('loginError');
-        const logoutButton = document.getElementById('logoutButton');
 
     const aboutButton = document.getElementById('aboutButton');
     const aboutModal = document.getElementById('aboutModal');
@@ -1002,13 +1005,6 @@
         let tabCounter = 1;
 
         const ANONYMIZE_BTN_LABEL = '🔒 Anonymize';
-
-        function updateSessionUI(isAuthenticated) {
-            if (logoutButton) {
-                logoutButton.classList.toggle('hidden', !isAuthenticated);
-                logoutButton.disabled = false;
-            }
-        }
 
         function lockInterface(message) {
             if (loginOverlay) {
@@ -1035,13 +1031,13 @@
                 loginButton.style.pointerEvents = 'auto';
             }
 
-            if (logoutButton) {
-                logoutButton.disabled = false;
-            }
-
             appConfig.authenticated = false;
-            updateSessionUI(false);
             resetAllTabs();
+
+            // Re-run SSO silently; the Azure session usually round-trips without a prompt.
+            if (appConfig.azureConfigured && !appConfig.loginFailed) {
+                window.location.href = '/login';
+            }
         }
 
         function openAboutModal() {
@@ -1077,7 +1073,6 @@
             }
 
             appConfig.authenticated = true;
-            updateSessionUI(true);
         }
 
         async function parseJsonResponse(response, unauthorizedMessage) {
@@ -1093,28 +1088,9 @@
 
         if (!appConfig.authenticated) {
             lockInterface();
-        } else {
-            updateSessionUI(true);
         }
 
         // Azure SSO login is handled via server redirect — no form handler needed
-
-        if (logoutButton) {
-            logoutButton.addEventListener('click', async () => {
-                logoutButton.disabled = true;
-
-                try {
-                    // POST to /logout to clear the session, then follow the redirect to Azure AD logout
-                    const form = document.createElement('form');
-                    form.method = 'POST';
-                    form.action = '/logout';
-                    document.body.appendChild(form);
-                    form.submit();
-                } catch (error) {
-                    logoutButton.disabled = false;
-                }
-            });
-        }
 
         if (aboutButton) {
             aboutButton.addEventListener('click', openAboutModal);
@@ -1791,7 +1767,8 @@
                     state.uploadController.xhr = xhr;
 
                     xhr.open('POST', url, true);
-                    xhr.responseType = 'json';
+                    // 'text' (not 'json') so error bodies from proxies are still readable
+                    xhr.responseType = 'text';
                     xhr.setRequestHeader('Accept', 'application/json');
 
                     xhr.upload.addEventListener('progress', (event) => {
@@ -1821,10 +1798,8 @@
 
                     xhr.addEventListener('load', () => {
                         clearInterval(xhr._serverTimer);
-                        let payload = xhr.response;
-                        if (!payload && xhr.responseText) {
-                            try { payload = JSON.parse(xhr.responseText); } catch (_) { payload = null; }
-                        }
+                        let payload = null;
+                        try { payload = JSON.parse(xhr.responseText); } catch (_) { payload = null; }
 
                         if (xhr.status === 401) {
                             const message = (payload && payload.error) || 'Session expired. Please login to continue.';
@@ -1857,7 +1832,8 @@
                     state.uploadController.xhr = xhr;
 
                     xhr.open('POST', url, true);
-                    xhr.responseType = 'json';
+                    // 'text' (not 'json') so error bodies from proxies are still readable
+                    xhr.responseType = 'text';
                     xhr.setRequestHeader('Content-Type', 'application/json');
                     xhr.setRequestHeader('Accept', 'application/json');
 
@@ -1875,10 +1851,8 @@
 
                     xhr.addEventListener('load', () => {
                         if (jsonTimer) clearInterval(jsonTimer);
-                        let payload = xhr.response;
-                        if (!payload && xhr.responseText) {
-                            try { payload = JSON.parse(xhr.responseText); } catch (_) { payload = null; }
-                        }
+                        let payload = null;
+                        try { payload = JSON.parse(xhr.responseText); } catch (_) { payload = null; }
 
                         if (xhr.status === 401) {
                             const message = (payload && payload.error) || 'Session expired. Please login to continue.';

@@ -11,7 +11,7 @@ services:
 
   dicom-anonymizer:
     image: ghcr.io/dvir001/dicom-anonymizer-web-ui:edge
-    pull_policy: always
+    pull_policy: unless-stopped
     depends_on:
       redis:
         condition: service_healthy

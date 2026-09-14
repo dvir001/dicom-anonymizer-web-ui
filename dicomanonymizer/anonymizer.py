@@ -1,19 +1,15 @@
-import sys
-
-if sys.version_info >= (3, 8):
-    import importlib.metadata as metadata
-else:
-    import importlib_metadata as metadata
-
 import argparse
 import ast
 import json
 import os
+import sys
+from importlib import metadata
+
 import tqdm
 
 from dicomanonymizer.simpledicomanonymizer import (
-    anonymize_dicom_file,
     ActionsMapNameFunctions,
+    anonymize_dicom_file,
 )
 
 
@@ -25,7 +21,7 @@ def isDICOMType(filePath):
         with open(filePath, "rb") as tempFile:
             tempFile.seek(0x80, os.SEEK_SET)
             return tempFile.read(4) == b"DICM"
-    except IOError:
+    except OSError:
         return False
 
 

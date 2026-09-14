@@ -1,7 +1,8 @@
-from dicomanonymizer.dicom_anonymization_databases import dicomfields_2024b
+from dicomanonymizer.dicom_anonymization_databases import (
+    dicomfields_2023,
+    dicomfields_2024b,
+)
 from dicomanonymizer.dicomfields_selector import dicom_anonymization_database_selector
-
-from dicomanonymizer.dicom_anonymization_databases import dicomfields_2023
 
 
 def test_selector():

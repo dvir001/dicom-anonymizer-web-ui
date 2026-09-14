@@ -1,9 +1,9 @@
-import pydicom
 import re
-
-from enum import Enum
-from typing import Callable, List, Union
+from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum
+
+import pydicom
 
 from dicomanonymizer.dicomfields_selector import dicom_anonymization_database_selector
 from dicomanonymizer.format_tag import tag_to_hex_strings
@@ -15,7 +15,7 @@ dictionary = {}
 # Regexp function
 
 
-def regexp(options: Union[list, dict]):
+def regexp(options: list | dict):
     """
     Apply a regexp method to the dataset
 
@@ -45,7 +45,7 @@ def regexp(options: Union[list, dict]):
     return apply_regexp
 
 
-def replace_with_value(options: Union[list, dict]):
+def replace_with_value(options: list | dict):
     """
     Replace the given tag with a predefined value.
 
@@ -138,29 +138,40 @@ def replace_element_time(element):
 def replace_element(element):
     """
     Replace element's value according to it's VR:
-    - LO, LT, SH, PN, CS, ST, UT: replace with 'Anonymized'
+    - AE, CS, LO, LT, PN, SH, ST, UC, UT: replace with 'ANONYMIZED'
     - UI: cf replace_element_UID
+    - AS: value will be replaced by '000Y'
+    - UR: value will be replaced by 'http://anonymized.invalid'
     - DS and IS: value will be replaced by '0'
     - FD, FL, SS, US, SL, UL: value will be replaced by 0
     - DA: value will be replaced by '00010101'
     - DT: value will be replaced by '00010101010101.000000+0000'
     - TM: value will be replaced by '000000.00'
-    - UN: value will be replaced by b'Anonymized' (binary string)
+    - OB and UN: value will be replaced by b'Anonymized' (binary string)
     - SQ: call replace_element for all sub elements
 
     See https://laurelbridge.com/pdf/Dicom-Anonymization-Conformance-Statement.pdf
     """
-    if element.VR in ("LO", "LT", "SH", "PN", "CS", "ST", "UT"):
+    if element.VR in ("AE", "CS", "LO", "LT", "PN", "SH", "ST", "UC", "UT"):
         element.value = "ANONYMIZED"  # CS VR accepts only uppercase characters
     elif element.VR == "UI":
         replace_element_UID(element)
+    elif element.VR == "AS":
+        # AS is a fixed 4-byte string of the form nnnD, nnnW, nnnM or nnnY.
+        element.value = "000Y"
+    elif element.VR == "UR":
+        # .invalid is reserved for this purpose by RFC 2606.
+        element.value = "http://anonymized.invalid"
     elif element.VR in ("DS", "IS"):
         element.value = "0"
     elif element.VR in ("FD", "FL", "SS", "US", "SL", "UL"):
         element.value = 0
     elif element.VR in ("DT", "DA", "TM"):
         replace_date_time_element(element)
-    elif element.VR == "UN":
+    elif element.VR in ("OB", "UN"):
+        # OB is Other Byte, an uninterpreted stream of bytes, so there is no
+        # meaningful dummy for it: any even-length byte string is a valid
+        # value. Reuse the one already used for UN.
         element.value = b"Anonymized"
     elif element.VR == "SQ":
         for sub_dataset in element.value:
@@ -176,7 +187,7 @@ def replace_element(element):
                     replace_element(sub_element)
     else:
         raise NotImplementedError(
-            "Not anonymized. VR {} not yet implemented.".format(element.VR)
+            f"Not anonymized. VR {element.VR} not yet implemented."
         )
 
 
@@ -193,13 +204,13 @@ def replace(dataset, tag):
 def empty_element(element):
     """
     Clean element according to the element's VR:
-    - SH, PN, UI, LO, LT, CS, AS, ST and UT: value will be set to ''
+    - AE, AS, CS, LO, LT, PN, SH, ST, UC, UI, UR and UT: value will be set to ''
     - DA: value will be replaced by '00010101'
     - DT: value will be replaced by '00010101010101.000000+0000'
     - TM: value will be replaced by '000000.00'
     - UL, FL, FD, SL, SS and US: value will be replaced by 0
     - DS and IS: value will be replaced by '0'
-    - UN: value will be replaced by: b'' (binary string)
+    - OB and UN: value will be replaced by: b'' (binary string)
     - SQ: all subelement will be called with "empty_element"
 
     Date and time related VRs are not emptied by replacing their values with a empty string to keep
@@ -207,7 +218,20 @@ def empty_element(element):
 
     See: https://laurelbridge.com/pdf/Dicom-Anonymization-Conformance-Statement.pdf
     """
-    if element.VR in ("SH", "PN", "UI", "LO", "LT", "CS", "AS", "ST", "UT"):
+    if element.VR in (
+        "AE",
+        "AS",
+        "CS",
+        "LO",
+        "LT",
+        "PN",
+        "SH",
+        "ST",
+        "UC",
+        "UI",
+        "UR",
+        "UT",
+    ):
         element.value = ""
     elif element.VR in ("DT", "DA", "TM"):
         replace_date_time_element(element)
@@ -215,15 +239,23 @@ def empty_element(element):
         element.value = 0
     elif element.VR in ("DS", "IS"):
         element.value = "0"
-    elif element.VR == "UN":
+    elif element.VR in ("OB", "UN"):
         element.value = b""
     elif element.VR == "SQ":
         for sub_dataset in element.value:
             for sub_element in sub_dataset.elements():
-                empty_element(sub_element)
+                if isinstance(sub_element, pydicom.dataelem.RawDataElement):
+                    # RawDataElement is a NamedTuple, so cannot set its value
+                    # attribute. Convert it to a DataElement, empty value, and
+                    # set it back. Same fix as replace_element().
+                    e2 = pydicom.dataelem.DataElement_from_raw(sub_element)
+                    empty_element(e2)
+                    sub_dataset.add(e2)
+                else:
+                    empty_element(sub_element)
     else:
         raise NotImplementedError(
-            "Not anonymized. VR {} not yet implemented.".format(element.VR)
+            f"Not anonymized. VR {element.VR} not yet implemented."
         )
 
 
@@ -261,7 +293,6 @@ def delete(dataset, tag):
 
 def keep(dataset, tag):
     """K - keep (unchanged for non-sequence attributes, cleaned for sequences)"""
-    pass
 
 
 def replace_UID(dataset, tag):
@@ -372,7 +403,7 @@ def initialize_actions_2024b() -> dict:
 def anonymize_dicom_file(
     in_file: str,
     out_file: str,
-    extra_anonymization_rules: dict = None,
+    extra_anonymization_rules: dict | None = None,
     delete_private_tags: bool = True,
     base_rules_gen: Callable = initialize_actions,
 ) -> None:
@@ -431,7 +462,7 @@ def get_private_tag(dataset, tag):
 
 def get_private_tags(
     anonymization_actions: dict, dataset: pydicom.Dataset
-) -> List[dict]:
+) -> list[dict]:
     """
     Extract private tag as a list of object with creator and element
 
@@ -440,7 +471,7 @@ def get_private_tags(
     :return Array of object
     """
     private_tags = []
-    for tag in anonymization_actions.keys():
+    for tag in anonymization_actions:
         try:
             element = dataset.get(tag)
         except KeyError:
@@ -454,7 +485,7 @@ def get_private_tags(
 
 def anonymize_dataset(
     dataset: pydicom.Dataset,
-    extra_anonymization_rules: dict = None,
+    extra_anonymization_rules: dict | None = None,
     delete_private_tags: bool = True,
     base_rules_gen: Callable = initialize_actions,
 ) -> None:
@@ -475,7 +506,7 @@ def anonymize_dataset(
 
     for tag, action in current_anonymization_actions.items():
 
-        def range_callback(dataset, data_element):
+        def range_callback(dataset, data_element, tag=tag, action=action):
             if (
                 data_element.tag.group & tag[2] == tag[0] & tag[2]
                 and data_element.tag.element & tag[3] == tag[1] & tag[3]

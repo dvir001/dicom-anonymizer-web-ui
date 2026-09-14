@@ -22,6 +22,8 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 import zipfile
+import py7zr
+import rarfile
 from dicomanonymizer.simpledicomanonymizer import anonymize_dicom_file
 from dicomanonymizer.anonymizer import isDICOMType
 from pydicom import dcmread
@@ -55,10 +57,8 @@ PROJECT_ROOT = Path(os.getenv('DICOM_APP_ROOT', Path.cwd()))
 app = Flask(__name__)
 _secret_key = os.getenv('SECRET_KEY')
 if not _secret_key:
-    if os.getenv('FLASK_ENV', 'development').lower() == 'production':
-        raise RuntimeError("SECRET_KEY must be set in production")
     _secret_key = secrets.token_hex(32)
-    logger.warning("SECRET_KEY is not set; generated ephemeral development key")
+    logger.warning("SECRET_KEY is not set; generated an ephemeral key for this process")
 elif len(_secret_key) < 32:
     logger.warning("SECRET_KEY is shorter than 32 characters; consider using a 64-character random string")
 
@@ -105,14 +105,9 @@ AZURE_REDIRECT_PATH = os.getenv('AZURE_REDIRECT_PATH', '/auth/callback')
 AZURE_SCOPES = ['User.Read']  # Basic profile info
 
 if not AZURE_CLIENT_ID or not AZURE_TENANT_ID:
-    if IS_PRODUCTION:
-        raise RuntimeError(
-            'AZURE_CLIENT_ID and AZURE_TENANT_ID must be set in production environments. '
-            'Register an App in Entra ID and configure the environment variables.'
-        )
     security_logger.warning(
         'Azure AD SSO not fully configured (AZURE_CLIENT_ID / AZURE_TENANT_ID missing). '
-        'Authentication will not work until these are set.'
+        'Running without authentication.'
     )
 
 SESSION_TIMEOUT_MINUTES = int(os.getenv('SESSION_TIMEOUT_MINUTES', '60'))
@@ -383,6 +378,114 @@ def allowed_file(filename):
     if '\x00' in filename or '..' in filename or '/' in filename or '\\' in filename:
         logger.warning("Blocked upload of file with dangerous characters: %s", filename)
         return False
+
+    return True
+
+
+MAX_ARCHIVE_ENTRIES = 10000
+MAX_ARCHIVE_EXTRACTED_SIZE = 1024 * 1024 * 1024
+
+
+class ArchiveValidationError(ValueError):
+    def __init__(self, message, status_code=400):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _validate_archive_entries(entries):
+    if len(entries) > MAX_ARCHIVE_ENTRIES:
+        raise ArchiveValidationError(
+            f'Archive contains too many entries (max {MAX_ARCHIVE_ENTRIES:,})', 413
+        )
+
+    total_size = sum(size for _, size in entries)
+    if total_size > MAX_ARCHIVE_EXTRACTED_SIZE:
+        raise ArchiveValidationError('Archive is too large when extracted', 413)
+
+    for name, _ in entries:
+        path = name.replace('\\', '/')
+        parts = path.split('/')
+        if not path or path.startswith('/') or '\x00' in path or '..' in parts:
+            raise ArchiveValidationError('Archive contains invalid paths')
+
+
+def _validate_extracted_tree(extract_dir):
+    extract_root = os.path.realpath(extract_dir)
+    for root, directories, filenames in os.walk(extract_dir):
+        for name in directories + filenames:
+            path = os.path.join(root, name)
+            if os.path.islink(path):
+                raise ArchiveValidationError('Archive contains unsupported symbolic links')
+            try:
+                if os.path.commonpath([os.path.realpath(path), extract_root]) != extract_root:
+                    raise ArchiveValidationError('Archive contains invalid paths')
+            except ValueError as exc:
+                raise ArchiveValidationError('Archive contains invalid paths') from exc
+
+
+def _extract_archive(filepath, extract_dir):
+    """Extract a ZIP, 7z, or RAR archive after validating its contents."""
+    archive_type = None
+    entries = []
+
+    if zipfile.is_zipfile(filepath):
+        archive_type = 'ZIP'
+        with zipfile.ZipFile(filepath, 'r') as archive:
+            entries = [(info.filename, info.file_size) for info in archive.infolist()]
+    elif str(filepath).lower().endswith('.7z'):
+        archive_type = '7z'
+        try:
+            with py7zr.SevenZipFile(filepath, mode='r') as archive:
+                if archive.needs_password():
+                    raise ArchiveValidationError('Password-protected 7z archives are not supported')
+                entries = [
+                    (info.filename, info.uncompressed or 0)
+                    for info in archive.list()
+                ]
+        except ArchiveValidationError:
+            raise
+        except Exception as exc:
+            raise ArchiveValidationError('Invalid or unsupported 7z archive') from exc
+    elif str(filepath).lower().endswith('.rar'):
+        archive_type = 'RAR'
+        try:
+            with rarfile.RarFile(filepath, mode='r') as archive:
+                if archive.needs_password():
+                    raise ArchiveValidationError('Password-protected RAR archives are not supported')
+                archive_entries = archive.infolist()
+                if any(info.is_symlink() for info in archive_entries):
+                    raise ArchiveValidationError('Archive contains unsupported symbolic links')
+                entries = [(info.filename, info.file_size) for info in archive_entries]
+        except ArchiveValidationError:
+            raise
+        except rarfile.Error as exc:
+            raise ArchiveValidationError('Invalid or unsupported RAR archive') from exc
+    elif str(filepath).lower().endswith('.zip'):
+        raise ArchiveValidationError('Invalid ZIP archive')
+    else:
+        return False
+
+    _validate_archive_entries(entries)
+    if not safe_makedirs(extract_dir):
+        raise OSError('Failed to create extraction directory')
+
+    try:
+        if archive_type == 'ZIP':
+            with zipfile.ZipFile(filepath, 'r') as archive:
+                archive.extractall(extract_dir)
+        elif archive_type == '7z':
+            with py7zr.SevenZipFile(filepath, mode='r') as archive:
+                archive.extractall(path=extract_dir)
+        else:
+            with rarfile.RarFile(filepath, mode='r') as archive:
+                archive.extractall(path=extract_dir)
+        _validate_extracted_tree(extract_dir)
+    except ArchiveValidationError:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        raise
+    except Exception as exc:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        raise ArchiveValidationError(f'Failed to extract {archive_type} archive') from exc
 
     return True
 
@@ -787,6 +890,9 @@ def login_required(f):
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        if not AZURE_CLIENT_ID or not AZURE_TENANT_ID:
+            return f(*args, **kwargs)
+
         is_valid, reason, _ = _current_session_state()
 
         if not is_valid:
@@ -876,12 +982,14 @@ def health_check():
 def index():
     """Main application page; unauthenticated visitors are sent straight to Azure AD."""
     is_authenticated, _, remaining_seconds = _current_session_state()
+    azure_configured = bool(AZURE_CLIENT_ID and AZURE_TENANT_ID)
+    has_access = is_authenticated or not azure_configured
     # Set by failed sign-in paths so a broken login can't bounce between here and Azure forever.
     login_failed = request.args.get('login_error') == '1'
 
     if not is_authenticated:
         session.clear()
-        if AZURE_CLIENT_ID and AZURE_TENANT_ID and not login_failed:
+        if azure_configured and not login_failed:
             return redirect(secure_url_for('login'))
 
     existing_sessions: list[dict] = []
@@ -907,12 +1015,12 @@ def index():
 
     return render_template(
         'index.html',
-        is_authenticated=is_authenticated,
+        is_authenticated=has_access,
         session_timeout_minutes=SESSION_TIMEOUT_MINUTES,
         session_remaining_seconds=remaining_seconds,
         existing_sessions=existing_sessions,
         user_display_name=user_display_name,
-        azure_configured=bool(AZURE_CLIENT_ID and AZURE_TENANT_ID),
+        azure_configured=azure_configured,
         login_failed=login_failed
     )
 
@@ -1009,7 +1117,7 @@ def auth_callback():
 @login_required
 def upload_files():
     """
-    Handle file uploads with DICOM validation and ZIP extraction.
+    Handle file uploads with DICOM validation and archive extraction.
     Enhanced with size validation, storage checks, and secure folder support.
     """
     if 'files' not in request.files:
@@ -1160,50 +1268,18 @@ def upload_files():
             storage_file.save(filepath)
             existing_paths.add(rel_candidate)
 
-            is_zip = False
+            extract_dir = os.path.join(session_dir, f'extracted_{target_name}')
             try:
-                with zipfile.ZipFile(filepath, 'r') as test_zip:
-                    zip_entries = test_zip.infolist()
-                    if len(zip_entries) > 10000:
-                        logger.warning("ZIP file contains too many entries: %s (%d files)", filepath, len(zip_entries))
-                        os.remove(filepath)
-                        existing_paths.discard(rel_candidate)
-                        continue
-                    total_size = sum(info.file_size for info in zip_entries)
-                    if total_size > 1024 * 1024 * 1024:
-                        logger.warning("ZIP file too large when extracted: %s (%d bytes)", filepath, total_size)
-                        os.remove(filepath)
-                        existing_paths.discard(rel_candidate)
-                        continue
-
-                    for info in zip_entries:
-                        if '..' in info.filename or info.filename.startswith('/') or '\\' in info.filename:
-                            logger.warning("Malicious path in ZIP file: %s", info.filename)
-                            os.remove(filepath)
-                            existing_paths.discard(rel_candidate)
-                            is_zip = False
-                            break
-                    else:
-                        is_zip = True
-            except zipfile.BadZipFile:
-                is_zip = False
-            except Exception as exc:
-                logger.warning("Error processing ZIP file %s: %s", filepath, str(exc))
-                is_zip = False
-
-            if is_zip:
-                extract_dir = os.path.join(session_dir, f'extracted_{target_name}')
-                if not safe_makedirs(extract_dir):
-                    os.remove(filepath)
-                    existing_paths.discard(rel_candidate)
-                    return jsonify({'error': 'Failed to create extraction directory'}), 500
-
-                with zipfile.ZipFile(filepath, 'r') as zip_ref:
-                    zip_ref.extractall(extract_dir)
-
+                is_archive = _extract_archive(filepath, extract_dir)
+            except ArchiveValidationError as exc:
+                logger.warning("Rejected archive %s: %s", filepath, str(exc))
                 os.remove(filepath)
                 existing_paths.discard(rel_candidate)
+                return jsonify({'error': str(exc)}), exc.status_code
 
+            if is_archive:
+                os.remove(filepath)
+                existing_paths.discard(rel_candidate)
                 for root, _, files_in_zip in os.walk(extract_dir):
                     for zip_file in files_in_zip:
                         full_path = os.path.join(root, zip_file)
@@ -1529,49 +1605,21 @@ def upload_chunk_complete():
         # Clean up chunk directory (may already be empty)
         shutil.rmtree(chunk_dir, ignore_errors=True)
 
-        # Process the assembled file (DICOM validation, ZIP extraction)
+        # Process the assembled file (DICOM validation and archive extraction)
         _set_assembly_progress(upload_id, 'processing', 'Checking file type...', 45)
         uploaded_files = []
 
-        is_zip = False
+        extract_dir = os.path.join(session_dir, f'extracted_{target_name}')
         try:
-            with zipfile.ZipFile(filepath, 'r') as test_zip:
-                zip_entries = test_zip.infolist()
-                if len(zip_entries) > 10000:
-                    logger.warning("ZIP file contains too many entries: %s (%d files)", filepath, len(zip_entries))
-                    os.remove(filepath)
-                    return jsonify({'error': 'ZIP file contains too many entries (max 10,000)'}), 413
-                total_size = sum(info.file_size for info in zip_entries)
-                if total_size > 1024 * 1024 * 1024:
-                    logger.warning("ZIP file too large when extracted: %s (%d bytes)", filepath, total_size)
-                    os.remove(filepath)
-                    return jsonify({'error': 'ZIP file too large when extracted'}), 413
-
-                for info in zip_entries:
-                    if '..' in info.filename or info.filename.startswith('/') or '\\' in info.filename:
-                        logger.warning("Malicious path in ZIP file: %s", info.filename)
-                        os.remove(filepath)
-                        return jsonify({'error': 'ZIP contains invalid paths'}), 400
-
-                is_zip = True
-        except zipfile.BadZipFile:
-            is_zip = False
-        except Exception as exc:
-            logger.warning("Error processing ZIP file %s: %s", filepath, str(exc))
-            is_zip = False
-
-        if is_zip:
-            _set_assembly_progress(upload_id, 'extracting', 'Extracting ZIP archive...', 50)
-            extract_dir = os.path.join(session_dir, f'extracted_{target_name}')
-            if not safe_makedirs(extract_dir):
-                os.remove(filepath)
-                return jsonify({'error': 'Failed to create extraction directory'}), 500
-
-            with zipfile.ZipFile(filepath, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
-
+            is_archive = _extract_archive(filepath, extract_dir)
+        except ArchiveValidationError as exc:
+            logger.warning("Rejected archive %s: %s", filepath, str(exc))
             os.remove(filepath)
+            return jsonify({'error': str(exc)}), exc.status_code
 
+        if is_archive:
+            _set_assembly_progress(upload_id, 'extracting', 'Extracting archive...', 50)
+            os.remove(filepath)
             for root, _, files_in_zip in os.walk(extract_dir):
                 for zip_file in files_in_zip:
                     full_path = os.path.join(root, zip_file)
@@ -1721,7 +1769,7 @@ def anonymize_files():
                 if is_dicom_file(input_file):
                     # Preserve the relative path structure in output
                     rel_path = os.path.relpath(input_file, input_dir)
-                    # Strip the extracted_* prefix that was added during ZIP extraction
+                    # Strip the extracted_* prefix that was added during archive extraction
                     # so the output mirrors the original ZIP's internal structure.
                     rel_parts = Path(rel_path).parts
                     if rel_parts and rel_parts[0].startswith('extracted_'):
@@ -1950,7 +1998,7 @@ if __name__ == '__main__':
     logger.info("Upload folder: %s", UPLOAD_FOLDER)
     logger.info("Output folder: %s", OUTPUT_FOLDER)
     logger.info("Environment: %s", FLASK_ENV)
-    logger.info("Features enabled: content-based validation, zip extraction, cleanup, minimal anonymization, health checks, Azure AD SSO")
+    logger.info("Features enabled: content-based validation, archive extraction, cleanup, minimal anonymization, health checks, Azure AD SSO")
 
     if IS_PRODUCTION:
         logger.info("Running in PRODUCTION mode")

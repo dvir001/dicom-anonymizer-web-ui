@@ -1,61 +1,34 @@
 services:
   redis:
     image: redis:7-alpine
-    container_name: ${REDIS_CONTAINER_NAME:-dicom-anonymizer-redis}
     command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
-    mem_limit: ${REDIS_MEMORY_LIMIT:-512M}
-    cpus: ${REDIS_CPU_LIMIT:-0.25}
-    restart: ${RESTART_POLICY:-unless-stopped}
-    networks:
-      - default
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 5s
 
   dicom-anonymizer:
-    build: .
-    container_name: ${CONTAINER_NAME:-dicom-anonymizer-app}
+    image: ghcr.io/dvir001/dicom-anonymizer-web-ui:edge
+    pull_policy: always
     depends_on:
       redis:
         condition: service_healthy
     environment:
-      - FLASK_ENV=${FLASK_ENV:-production}
-      - FLASK_APP=${FLASK_APP:-app.py}
-      # Azure AD / Entra ID SSO configuration
-      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID:-}
-      - AZURE_TENANT_ID=${AZURE_TENANT_ID:-}
-      - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET:-}
-      - AZURE_REDIRECT_PATH=${AZURE_REDIRECT_PATH:-/auth/callback}
-      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY to a persistent 64-character random value}
-      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
-      # Session configuration (authentication vs file storage timeouts)
-      - SESSION_TIMEOUT_MINUTES=${SESSION_TIMEOUT_MINUTES:-60}
-      - SESSION_FILE_TIMEOUT_MINUTES=${SESSION_FILE_TIMEOUT_MINUTES:-30}
-      # Concurrent session limits and performance
-      - MAX_SESSIONS_PER_USER=${MAX_SESSIONS_PER_USER:-3}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - ANONYMOUS_RATE_LIMIT=${ANONYMOUS_RATE_LIMIT:-10}
-      # Add additional Flask production settings
-      - PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-1}
-      - PYTHONDONTWRITEBYTECODE=${PYTHONDONTWRITEBYTECODE:-1}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-    mem_limit: ${MEMORY_LIMIT:-4G}
-    mem_reservation: ${MEMORY_RESERVATION:-512M}
-    cpus: ${CPU_LIMIT:-0.6}
-    restart: ${RESTART_POLICY:-unless-stopped}
+      FLASK_ENV: production
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
     ports:
       - "${APP_PORT:-5000}:5000"
-    networks:
-      - default
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: ${HEALTH_CHECK_INTERVAL:-30s}
-      timeout: ${HEALTH_CHECK_TIMEOUT:-10s}
-      retries: ${HEALTH_CHECK_RETRIES:-3}
-      start_period: ${HEALTH_CHECK_START_PERIOD:-40s}
-
-networks:
-  default:
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

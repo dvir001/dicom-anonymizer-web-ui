@@ -862,7 +862,7 @@
     <div id="appContainer" class="container{% if not is_authenticated %} locked{% endif %}">
         <div class="top-bar">
             <h1>🏥 DICOM Anonymizer</h1>
-            <p class="banner-text">Secure batch anonymization with ZIP extraction and folder preservation.</p>
+            <p class="banner-text">Secure batch anonymization with ZIP, 7z, and RAR extraction and folder preservation.</p>
             <div class="top-bar-actions">
                 <button type="button" class="btn secondary" id="aboutButton">ℹ️ About</button>
             </div>
@@ -880,7 +880,7 @@
                         </ul>
                     </li>
                     <li><strong>File Support:</strong> Accepts any file type (up to 3GB per session) - DICOM files are automatically detected by content</li>
-                    <li><strong>ZIP Archives:</strong> Automatically extracts and processes DICOM files from ZIP archives</li>
+                    <li><strong>ZIP, 7z, and RAR Archives:</strong> Automatically extracts and processes archived DICOM files</li>
                     <li><strong>Batch Processing:</strong> Upload multiple files at once, add more before processing</li>
                     <li><strong>Structure Preservation:</strong> Maintains original folder hierarchy in anonymized output</li>
                     <li><strong>Auto-Cleanup:</strong> Files are automatically deleted after 30 minutes</li>
@@ -1962,7 +1962,7 @@
                             preparing: 'Preparing',
                             assembling: 'Assembling chunks',
                             processing: 'Checking file type',
-                            extracting: 'Extracting ZIP archive',
+                            extracting: 'Extracting archive',
                             validating: 'Validating DICOM files',
                             cleaning: 'Cleaning up non-DICOM files',
                             complete: 'Done'

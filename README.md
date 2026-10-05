@@ -120,6 +120,9 @@ The application understands forwarded HTTPS headers. A minimal Nginx location lo
 server {
     location / {
         proxy_pass http://dicom-anonymizer:5000;
+        proxy_buffering off;
+        proxy_read_timeout 1800s;
+        send_timeout 1800s;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -132,6 +135,31 @@ server {
 
 `X-Forwarded-Proto` is required for correct HTTPS redirects.
 
+For large ZIP downloads, `proxy_buffering off` avoids spooling responses to the
+proxy's temporary disk. The timeout settings above allow up to 30 minutes of
+inactivity between reads or writes, not a 30-minute limit on the entire transfer.
+Apply equivalent settings to the live Nginx/OpenResty proxy and reload it after
+validating the configuration with `nginx -t`.
+
+If a download stops partway through, check the proxy error log and application
+container logs at the failure time for upstream timeouts, insufficient disk space,
+worker exits, or container restarts. ZIP downloads support HTTP Range requests for
+resuming while the output session remains available. Output files expire after
+30 minutes by default, so download or retry promptly.
+
+
+## Disk space warning
+
+The site checks available space on the upload, output, and chunk filesystems when
+the page loads and every minute. A persistent warning appears if any has less than
+5% free space or less than 3 GiB available. It clears when space recovers. This is
+an advisory warning, not a guarantee that a batch will fit: archive extraction,
+anonymized copies, and ZIP packaging can require several times the upload size.
+
+The authenticated `/api/storage` endpoint reports actual filesystem capacity,
+including space consumed by other applications on the same disk. In Docker this
+measures the container's working filesystems; it does not inspect unrelated host
+mounts or host disks hidden behind container storage quotas.
 
 # How to build it?
 These instructions rely on wheel build-package format. Install it if you have not done it already using:

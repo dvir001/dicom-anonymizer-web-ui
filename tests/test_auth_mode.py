@@ -1,3 +1,7 @@
+from types import SimpleNamespace
+
+import pytest
+
 from app import app, login_required
 
 
@@ -30,3 +34,62 @@ def test_login_required_enforces_configured_sso(monkeypatch):
 
     assert status == 401
     assert response.get_json()["error"] == "Authentication required."
+
+
+@pytest.mark.parametrize("total_gib,free_gib,low_space", [
+    (100, 4, True),
+    (10, 2, True),
+    (100, 10, False),
+    (60, 3, False),
+])
+def test_storage_status_checks_actual_disk_space(monkeypatch, total_gib, free_gib, low_space):
+    monkeypatch.setattr("app.AZURE_CLIENT_ID", "")
+    monkeypatch.setattr("app.AZURE_TENANT_ID", "")
+    gib = 1024 ** 3
+    checked_paths = []
+
+    def disk_usage(path):
+        checked_paths.append(path)
+        return SimpleNamespace(total=total_gib * gib, free=free_gib * gib)
+
+    monkeypatch.setattr("app.shutil.disk_usage", disk_usage)
+    response = app.test_client().get("/api/storage")
+    assert response.status_code == 200
+    assert response.get_json()["low_space"] is low_space
+    assert response.get_json()["free_bytes"] == free_gib * gib
+    assert response.get_json()["free_percent"] == pytest.approx(free_gib / total_gib * 100)
+    assert response.headers["Cache-Control"] == "no-store"
+    assert checked_paths == [app.config[key] for key in ("UPLOAD_FOLDER", "OUTPUT_FOLDER", "CHUNK_FOLDER")]
+
+
+def test_storage_status_detects_low_chunk_filesystem(monkeypatch):
+    monkeypatch.setattr("app.AZURE_CLIENT_ID", "")
+    monkeypatch.setattr("app.AZURE_TENANT_ID", "")
+    monkeypatch.setattr("app.shutil.disk_usage", lambda path: SimpleNamespace(
+        total=100 * 1024 ** 3,
+        free=(1 if path == app.config["CHUNK_FOLDER"] else 10) * 1024 ** 3,
+    ))
+    response = app.test_client().get("/api/storage")
+    assert response.status_code == 200
+    assert response.get_json()["low_space"] is True
+    assert response.get_json()["free_bytes"] == 1024 ** 3
+
+
+def test_storage_status_requires_login_when_sso_configured(monkeypatch):
+    monkeypatch.setattr("app.AZURE_CLIENT_ID", "client-id")
+    monkeypatch.setattr("app.AZURE_TENANT_ID", "tenant-id")
+    response = app.test_client().get("/api/storage")
+    assert response.status_code == 401
+
+
+def test_storage_status_reports_unavailable_disk(monkeypatch):
+    monkeypatch.setattr("app.AZURE_CLIENT_ID", "")
+    monkeypatch.setattr("app.AZURE_TENANT_ID", "")
+
+    def disk_usage(path):
+        raise OSError("Disk unavailable")
+
+    monkeypatch.setattr("app.shutil.disk_usage", disk_usage)
+    response = app.test_client().get("/api/storage")
+    assert response.status_code == 503
+    assert response.get_json()["error"] == "Server disk status unavailable."

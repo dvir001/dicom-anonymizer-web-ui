@@ -868,6 +868,8 @@
             </div>
         </div>
 
+        <div id="diskSpaceWarning" class="status warning hidden" role="status" aria-live="polite"></div>
+
         <div id="aboutModal" class="info-modal hidden">
             <div class="info-modal-content">
                 <h4>📋 About DICOM Anonymizer</h4>
@@ -2577,10 +2579,41 @@
             switchTab('tab-1');
         }
 
+        async function refreshDiskSpaceWarning() {
+            const warning = document.getElementById('diskSpaceWarning');
+            if (!appConfig.authenticated) {
+                warning.classList.add('hidden');
+                return;
+            }
+            try {
+                const response = await fetch('/api/storage', {
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout(10000)
+                });
+                if (response.status === 401) {
+                    warning.classList.add('hidden');
+                    return;
+                }
+                if (!response.ok) {
+                    throw new Error('Disk status unavailable');
+                }
+                const disk = await response.json();
+                warning.textContent = disk.low_space
+                    ? `Server disk space is low: ${formatFileSize(disk.free_bytes)} free (${disk.free_percent.toFixed(1)}%). Uploads, anonymization, and downloads may fail. Contact your administrator.`
+                    : '';
+                warning.classList.toggle('hidden', !disk.low_space);
+            } catch (error) {
+                warning.textContent = 'Server disk status unavailable. Contact your administrator if uploads or downloads fail.';
+                warning.classList.remove('hidden');
+            }
+        }
+
         // Initialize first tab on page load
         window.addEventListener('load', () => {
             setupTabEventHandlers('tab-1');
             restoreExistingSessions(appConfig.existingSessions);
+            refreshDiskSpaceWarning();
+            setInterval(refreshDiskSpaceWarning, 60000);
         });
     </script>
 </body>

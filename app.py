@@ -933,6 +933,28 @@ def keepalive():
     return jsonify({'ok': True, 'remaining_seconds': remaining_seconds})
 
 
+@app.route('/api/storage')
+@login_required
+def storage_status():
+    disks = []
+    try:
+        for folder in ('UPLOAD_FOLDER', 'OUTPUT_FOLDER', 'CHUNK_FOLDER'):
+            usage = shutil.disk_usage(app.config[folder])
+            free_percent = usage.free / usage.total * 100
+            disks.append({
+                'free_bytes': usage.free,
+                'total_bytes': usage.total,
+                'free_percent': free_percent,
+                'low_space': free_percent < 5 or usage.free < 3 * 1024 ** 3
+            })
+    except OSError:
+        logger.exception("Failed to check working filesystem disk space")
+        return jsonify({'error': 'Server disk status unavailable.'}), 503, {'Cache-Control': 'no-store'}
+
+    disk = min(disks, key=lambda entry: (not entry['low_space'], entry['free_bytes']))
+    return jsonify(disk), 200, {'Cache-Control': 'no-store'}
+
+
 @app.route('/health')
 def health_check():
     """Health check endpoint for container monitoring and load balancer checks."""
@@ -1882,8 +1904,17 @@ def download_anonymized(session_id):
                     zip_mtime = os.path.getmtime(zip_path)
                     latest_source_mtime = max(os.path.getmtime(fp) for fp in all_files)
                     if zip_mtime >= latest_source_mtime:
-                        needs_rebuild = False
-                except OSError:
+                        expected_entries = {
+                            os.path.relpath(fp, output_dir).replace(os.sep, '/'): os.path.getsize(fp)
+                            for fp in all_files
+                        }
+                        with zipfile.ZipFile(zip_path) as cached_zip:
+                            entries = cached_zip.infolist()
+                            needs_rebuild = (
+                                len(entries) != len(expected_entries)
+                                or {entry.filename: entry.file_size for entry in entries} != expected_entries
+                            )
+                except (OSError, zipfile.BadZipFile):
                     needs_rebuild = True
 
             if needs_rebuild:
@@ -1891,10 +1922,19 @@ def download_anonymized(session_id):
                 if ZIP_COMPRESSLEVEL is not None and ZIP_COMPRESSION == zipfile.ZIP_DEFLATED:
                     compression_kwargs['compresslevel'] = ZIP_COMPRESSLEVEL
 
-                with zipfile.ZipFile(zip_path, 'w', ZIP_COMPRESSION, **compression_kwargs) as zipf:
-                    for file_path in all_files:
-                        arc_path = os.path.relpath(file_path, output_dir)
-                        zipf.write(file_path, arc_path)
+                temp_fd, temp_zip_path = tempfile.mkstemp(
+                    prefix=f'{session_id}_', suffix='.tmp', dir=app.config['OUTPUT_FOLDER']
+                )
+                os.close(temp_fd)
+                try:
+                    with zipfile.ZipFile(temp_zip_path, 'w', ZIP_COMPRESSION, **compression_kwargs) as zipf:
+                        for file_path in all_files:
+                            arc_path = os.path.relpath(file_path, output_dir)
+                            zipf.write(file_path, arc_path)
+                    os.replace(temp_zip_path, zip_path)
+                finally:
+                    if os.path.exists(temp_zip_path):
+                        os.remove(temp_zip_path)
 
             timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
             download_name = f'{timestamp}-dicom.zip'
@@ -1909,6 +1949,7 @@ def download_anonymized(session_id):
             )
         
     except Exception as e:
+        logger.exception("Download failed for session %s", session_id)
         return jsonify({'error': f'Download failed: {str(e)}'}), 500
 
 

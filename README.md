@@ -130,7 +130,10 @@ LIQUIDFILES_EXPIRY_DAYS=7
 Restart the application or recreate containers after changing these settings.
 When configured, each batch offers **Download** or **Email via LiquidFiles**.
 Choose email delivery, enter recipients separated by commas or semicolons, then click **Send via LiquidFiles**
-after anonymization. Email mode does not automatically download or send files.
+after anonymization. With **Auto run on upload** enabled, email delivery sends
+automatically after anonymization when recipients are entered. Invalid addresses
+block sending; an empty recipient field leaves sending manual. Email mode does
+not automatically download files. Disable auto-run to keep email sending manual.
 LiquidFiles emails a secure download link, not a regular email attachment.
 Messages expire after the configured number of days and only the specified
 recipients can access them. All addresses are validated before uploading, duplicate

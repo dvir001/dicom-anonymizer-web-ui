@@ -2523,9 +2523,13 @@
             if (sendEmailBtn) sendEmailBtn.classList.toggle('hidden', !emailMode);
             downloadBtn.classList.toggle('hidden', emailMode);
 
-            // Auto-download if auto-run is enabled
             const autoRunCheckbox = document.getElementById(`autoRun-${tabId}`);
-            if (autoRunCheckbox && autoRunCheckbox.checked && !emailMode) {
+            if (autoRunCheckbox && autoRunCheckbox.checked && emailMode) {
+                const recipient = document.getElementById(`recipientEmail-${tabId}`);
+                if (recipient?.value.trim()) {
+                    sendViaLiquidFiles(tabId);
+                }
+            } else if (autoRunCheckbox && autoRunCheckbox.checked) {
                 setTimeout(() => {
                     if (emailDeliverySelected(tabId)) return;
                     downloadAnonymizedFiles(tabId);

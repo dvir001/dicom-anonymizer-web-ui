@@ -1050,6 +1050,7 @@ def index():
         user_display_name=user_display_name,
         azure_configured=azure_configured,
         login_failed=login_failed,
+        favicon_url=os.getenv('FAVICON_URL', '').strip(),
         upload_limit_gb=app.config['MAX_CONTENT_LENGTH'] / 1_000_000_000,
         archive_limit_gb=MAX_ARCHIVE_EXTRACTED_SIZE / 1_000_000_000,
         archive_entry_limit=MAX_ARCHIVE_ENTRIES,

@@ -24,6 +24,33 @@ def test_index_is_available_without_sso(monkeypatch):
     assert b'"authenticated": true' in response.data
 
 
+@pytest.mark.parametrize('url,expected', [
+    (' https://example.com/favicon.ico ', 'https://example.com/favicon.ico'),
+    ('https://example.com/icon.svg?size=32&color=red', 'https://example.com/icon.svg?size=32&amp;color=red'),
+    ('https://example.com/icon.ico" onload="alert(1)', 'https://example.com/icon.ico&#34; onload=&#34;alert(1)'),
+])
+def test_index_uses_configured_favicon(monkeypatch, url, expected):
+    monkeypatch.setattr('app.AZURE_CLIENT_ID', '')
+    monkeypatch.setattr('app.AZURE_TENANT_ID', '')
+    monkeypatch.setenv('FAVICON_URL', url)
+    response = app.test_client().get('/')
+    assert response.status_code == 200
+    assert f'<link rel="icon" href="{expected}">' in response.get_data(as_text=True)
+
+
+@pytest.mark.parametrize('url', [None, '', '   '])
+def test_index_omits_unconfigured_favicon(monkeypatch, url):
+    monkeypatch.setattr('app.AZURE_CLIENT_ID', '')
+    monkeypatch.setattr('app.AZURE_TENANT_ID', '')
+    if url is None:
+        monkeypatch.delenv('FAVICON_URL', raising=False)
+    else:
+        monkeypatch.setenv('FAVICON_URL', url)
+    response = app.test_client().get('/')
+    assert response.status_code == 200
+    assert '<link rel="icon"' not in response.get_data(as_text=True)
+
+
 def test_about_dialog_reflects_configured_limits(monkeypatch):
     monkeypatch.setattr('app.AZURE_CLIENT_ID', '')
     monkeypatch.setattr('app.AZURE_TENANT_ID', '')

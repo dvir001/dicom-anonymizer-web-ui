@@ -81,6 +81,16 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 Without a configured `SECRET_KEY`, the application generates a secure temporary key at startup. This is convenient for local use, but active browser sessions end when the container restarts.
 
+Set `FAVICON_URL` in `.env` to use a custom site icon:
+
+```dotenv
+FAVICON_URL=https://example.com/favicon.ico
+```
+
+The browser loads this URL directly, so it must be accessible to your users.
+Use HTTPS when serving the app over HTTPS. Leave it unset to omit the custom icon.
+Restart the app or recreate containers after changing `.env`.
+
 ### Larger uploads and archives
 
 The `.env.example` file enables 10 GB uploads and extracted archives when copied

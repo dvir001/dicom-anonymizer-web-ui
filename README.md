@@ -67,7 +67,7 @@ Dicom fields are separated into different groups. Each group will be anonymized 
 
 ## Optional configuration
 
-The default Compose file works without configuration and allows anonymous access. To change the port or enable SSO, copy the small example file:
+The default Compose file works without configuration and allows anonymous access. To change the port, upload limits, or enable SSO, copy the small example file:
 
 ```bash
 cp .env.example .env
@@ -80,6 +80,30 @@ python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 Without a configured `SECRET_KEY`, the application generates a secure temporary key at startup. This is convenient for local use, but active browser sessions end when the container restarts.
+
+### Larger uploads and archives
+
+The `.env.example` file enables 10 GB uploads and extracted archives when copied
+to `.env`. Sizes are in GB (1 GB = 1,000,000,000 bytes), with decimals such as
+`2.5` supported. The extracted limit applies to the total uncompressed contents
+of each archive:
+
+```dotenv
+MAX_CONTENT_LENGTH_GB=10
+MAX_ARCHIVE_EXTRACTED_SIZE_GB=10
+MAX_ARCHIVE_ENTRIES=10000
+```
+
+Without overrides, defaults are 3 GB for uploads, 1 GB extracted per archive,
+and 10,000 entries per archive. Increase the entry count only if needed. Keep
+finite limits to protect against decompression bombs, and provide disk space for
+uploaded archives, extracted contents, and anonymized outputs.
+
+Both Compose files pass these values to the application; local runs load `.env`
+automatically. Recreate containers with `docker compose up -d --force-recreate`
+after changing `.env`, or restart the application when running without Docker.
+The production stack needs an updated image containing these configuration changes;
+use the development stack below to run the local source.
 
 ## Development with Docker
 

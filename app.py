@@ -63,7 +63,7 @@ elif len(_secret_key) < 32:
     logger.warning("SECRET_KEY is shorter than 32 characters; consider using a 64-character random string")
 
 app.config['SECRET_KEY'] = _secret_key
-app.config['MAX_CONTENT_LENGTH'] = 3 * 1024 * 1024 * 1024  # 3GB max file size
+app.config['MAX_CONTENT_LENGTH'] = int(float(os.getenv('MAX_CONTENT_LENGTH_GB', '3')) * 1_000_000_000)
 
 # Session cookie security hardening
 app.config['SESSION_COOKIE_HTTPONLY'] = True      # Prevent JavaScript access to session cookie
@@ -382,8 +382,8 @@ def allowed_file(filename):
     return True
 
 
-MAX_ARCHIVE_ENTRIES = 10000
-MAX_ARCHIVE_EXTRACTED_SIZE = 1024 * 1024 * 1024
+MAX_ARCHIVE_ENTRIES = int(os.getenv('MAX_ARCHIVE_ENTRIES', '10000'))
+MAX_ARCHIVE_EXTRACTED_SIZE = int(float(os.getenv('MAX_ARCHIVE_EXTRACTED_SIZE_GB', '1')) * 1_000_000_000)
 
 
 class ArchiveValidationError(ValueError):

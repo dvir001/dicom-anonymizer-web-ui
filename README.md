@@ -148,8 +148,10 @@ supplied by the browser is ignored. No separate sender email setting is needed.
 The API key stays on the server, and file uploads are streamed rather than loaded
 into memory. HTTPS certificate verification is enabled. The server must permit
 the API account to upload and email the intended recipients; its own size,
-expiration, and recipient policies still apply. If a send times out, check the
-LiquidFiles message history before retrying to avoid duplicate delivery. Sending
+expiration, and recipient policies still apply. Send attempts are tracked in Redis.
+If a proxy timeout or unreadable response occurs, the browser checks delivery status
+instead of resending. If delivery remains unconfirmed, check the LiquidFiles message
+history before retrying to avoid duplicate delivery. Sending
 is available only for output batches created in the current browser session.
 Anonymous deployments can still download outputs, but cannot send via LiquidFiles.
 

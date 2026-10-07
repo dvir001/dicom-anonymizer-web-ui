@@ -1056,6 +1056,7 @@ def index():
         archive_entry_limit=MAX_ARCHIVE_ENTRIES,
         file_retention_minutes=SESSION_TIMEOUT_MINUTES_FILE,
         total_storage_gib=MAX_TOTAL_STORAGE / (1024 ** 3),
+        liquidfiles_timeout_seconds=LIQUIDFILES_TIMEOUT_SECONDS,
         liquidfiles_configured=bool(LIQUIDFILES_URL and LIQUIDFILES_API_KEY and azure_configured and is_authenticated)
     )
 
@@ -1968,8 +1969,24 @@ def send_liquidfiles(session_id):
         if not isinstance(email, str) or len(email.strip()) > 254 or not re.fullmatch(email_pattern, email.strip()):
             return jsonify({'error': 'Every recipient must be a valid email address.'}), 400
     recipients = list(dict.fromkeys(email.strip() for email in recipients))
+    request_id = data.get('request_id', secrets.token_hex(16))
+    if not isinstance(request_id, str) or not re.fullmatch(r'[a-f0-9]{32}', request_id):
+        return jsonify({'error': 'Invalid delivery request ID.'}), 400
+    delivery_ttl = max(86400, LIQUIDFILES_TIMEOUT_SECONDS * 2)
+
+    def delivery_response(payload, status_code=200):
+        status = 'sent' if payload.get('success') else 'unconfirmed' if status_code in (502, 504) else 'failed'
+        shared_state.set_liquidfiles_delivery(
+            session_id, request_id, {'status': status, 'error': payload.get('error')}, delivery_ttl
+        )
+        return jsonify(payload), status_code
 
     try:
+        if not shared_state.claim_liquidfiles_delivery(session_id, request_id, delivery_ttl):
+            existing = shared_state.get_liquidfiles_delivery(session_id, request_id)
+            if existing and existing['status'] == 'sent':
+                return jsonify({'success': True})
+            return jsonify({'error': 'This delivery request has already started. Check its status before retrying.'}), 409
         file_path, filename, mimetype = _prepare_output_download(session_id)
         with requests.Session() as client:
             client.auth = (LIQUIDFILES_API_KEY, 'x')
@@ -2000,17 +2017,35 @@ def send_liquidfiles(session_id):
             sent.raise_for_status()
             if not sent.json()['message']['id']:
                 raise ValueError('Invalid message response')
-        return jsonify({'success': True})
+        return delivery_response({'success': True})
     except FileNotFoundError as exc:
-        return jsonify({'error': str(exc)}), 404
+        return delivery_response({'error': str(exc)}, 404)
     except requests.Timeout:
-        return jsonify({'error': 'LiquidFiles timed out. Delivery is unconfirmed; check LiquidFiles before retrying.'}), 504
+        return delivery_response({'error': 'LiquidFiles timed out. Delivery is unconfirmed; check LiquidFiles before retrying.'}, 504)
     except (requests.RequestException, ValueError, KeyError, TypeError):
         logger.warning('LiquidFiles delivery failed for output batch %s', session_id)
-        return jsonify({'error': 'LiquidFiles delivery failed. Check the server configuration and LiquidFiles message history before retrying.'}), 502
+        return delivery_response({'error': 'LiquidFiles delivery failed. Check the server configuration and LiquidFiles message history before retrying.'}, 502)
     except OSError:
         logger.warning('Could not prepare output batch %s for LiquidFiles', session_id)
-        return jsonify({'error': 'Could not prepare files for sending. Please try again.'}), 500
+        return delivery_response({'error': 'Could not prepare files for sending. Please try again.'}, 500)
+    except shared_state.redis.RedisError:
+        return jsonify({'error': 'Delivery status is unavailable. Check LiquidFiles before retrying.'}), 503
+
+
+@app.route('/liquidfiles-status/<session_id>/<request_id>')
+@login_required
+def liquidfiles_delivery_status(session_id, request_id):
+    if not re.fullmatch(r'[a-f0-9]{32}', session_id) or not re.fullmatch(r'[a-f0-9]{32}', request_id):
+        return jsonify({'error': 'Invalid delivery request ID.'}), 400
+    if session_id not in session.get('output_sessions', []):
+        return jsonify({'error': 'You cannot access this output batch.'}), 403
+    try:
+        status = shared_state.get_liquidfiles_delivery(session_id, request_id)
+        response = jsonify(status or {'status': 'unknown'})
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except shared_state.redis.RedisError:
+        return jsonify({'error': 'Delivery status is unavailable.'}), 503
 
 
 @app.route('/cleanup/<session_id>')

@@ -976,7 +976,8 @@
             'userDisplayName': user_display_name,
             'azureConfigured': azure_configured,
             'loginFailed': login_failed,
-            'liquidfilesConfigured': liquidfiles_configured
+            'liquidfilesConfigured': liquidfiles_configured,
+            'liquidfilesTimeoutSeconds': liquidfiles_timeout_seconds
         } | tojson }}
     </script>
 
@@ -2396,28 +2397,64 @@
             const button = document.getElementById(`sendEmailBtn-${tabId}`);
             const controls = document.getElementById(`deliveryControls-${tabId}`);
             const outputSessionId = state.outputSessionId;
+            const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)), value => value.toString(16).padStart(2, '0')).join('');
+            const showSent = () => {
+                showStatus(`LiquidFiles sent an email to ${recipients.length} recipient${recipients.length === 1 ? '' : 's'}.`, 'success', tabId);
+                button.textContent = 'Sent';
+            };
+            const reconcileDelivery = async () => {
+                const deadline = Date.now() + (appConfig.liquidfilesTimeoutSeconds + 60) * 1000;
+                try {
+                    while (Date.now() < deadline && tabStates[tabId] === state) {
+                        const response = await fetch(`/liquidfiles-status/${outputSessionId}/${requestId}`, {
+                            headers: {'Accept': 'application/json'}, cache: 'no-store'
+                        });
+                        const status = await response.json();
+                        if (!response.ok) return null;
+                        if (status.status !== 'sending') return status;
+                        showStatus('LiquidFiles is still processing the delivery. Checking status...', 'info', tabId);
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+                } catch (_) {
+                    return null;
+                }
+                return null;
+            };
             state.sendingEmail = true;
             controls.querySelectorAll('input, button').forEach(input => input.disabled = true);
             button.textContent = 'Sending...';
             showStatus('Sending anonymized files via LiquidFiles...', 'info', tabId);
             try {
                 const response = await fetch(`/send-liquidfiles/${outputSessionId}`, {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({recipients})
+                    method: 'POST', headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                    body: JSON.stringify({recipients, request_id: requestId})
                 });
-                const result = await response.json();
-                if (!response.ok) throw new Error(result.error || 'LiquidFiles delivery failed.');
+                const result = await response.json().catch(() => null);
+                if (response.status === 401) {
+                    lockInterface('Session expired. Sign in before sending files.');
+                    return;
+                }
+                if (!response.ok || !result?.success) {
+                    throw new Error(result?.error || `The server returned an unexpected response (HTTP ${response.status}).`);
+                }
                 if (tabStates[tabId] !== state) return;
-                showStatus(`LiquidFiles sent an email to ${recipients.length} recipient${recipients.length === 1 ? '' : 's'}.`, 'success', tabId);
-                button.textContent = 'Sent';
+                showSent();
             } catch (error) {
+                const delivery = await reconcileDelivery();
                 if (tabStates[tabId] !== state) return;
-                showStatus(error.message, 'error', tabId);
-                button.textContent = 'Send via LiquidFiles';
+                if (delivery?.status === 'sent') {
+                    showSent();
+                } else if (delivery?.status === 'failed') {
+                    showStatus(delivery.error || error.message, 'error', tabId);
+                    button.textContent = 'Send via LiquidFiles';
+                } else {
+                    showStatus('Delivery is unconfirmed. The email may already have been sent. Check LiquidFiles message history before sending again.', 'warning', tabId);
+                    button.textContent = 'Delivery unconfirmed';
+                }
             } finally {
                 state.sendingEmail = false;
                 controls.querySelectorAll('input, button').forEach(input => input.disabled = false);
-                button.disabled = button.textContent === 'Sent';
+                button.disabled = button.textContent === 'Sent' || button.textContent === 'Delivery unconfirmed';
                 recipient.oninput = () => {
                     button.disabled = false;
                     button.textContent = 'Send via LiquidFiles';

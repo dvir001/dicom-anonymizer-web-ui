@@ -24,6 +24,27 @@ def test_index_is_available_without_sso(monkeypatch):
     assert b'"authenticated": true' in response.data
 
 
+def test_about_dialog_reflects_configured_limits(monkeypatch):
+    monkeypatch.setattr('app.AZURE_CLIENT_ID', '')
+    monkeypatch.setattr('app.AZURE_TENANT_ID', '')
+    monkeypatch.setitem(app.config, 'MAX_CONTENT_LENGTH', 12_500_000_000)
+    monkeypatch.setattr('app.MAX_ARCHIVE_EXTRACTED_SIZE', 8_000_000_000)
+    monkeypatch.setattr('app.MAX_ARCHIVE_ENTRIES', 42000)
+    monkeypatch.setattr('app.SESSION_TIMEOUT_MINUTES_FILE', 45)
+    monkeypatch.setattr('app.MAX_TOTAL_STORAGE', 25 * 1024 ** 3)
+
+    response = app.test_client().get('/')
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'Uploads up to 12.5 GB' in html
+    assert '8 GB extracted and 42,000 entries per archive' in html
+    assert '45 minutes of session inactivity' in html
+    assert '25 GiB temporary storage budget' in html
+    assert 'LiquidFiles email delivery to multiple recipients' in html
+    assert 'dedicated API account' in html
+    assert '3GB per session' not in html
+
+
 def test_login_required_enforces_configured_sso(monkeypatch):
     monkeypatch.setattr("app.AZURE_CLIENT_ID", "client-id")
     monkeypatch.setattr("app.AZURE_TENANT_ID", "tenant-id")

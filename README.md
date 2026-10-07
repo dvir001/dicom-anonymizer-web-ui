@@ -105,6 +105,41 @@ after changing `.env`, or restart the application when running without Docker.
 The production stack needs an updated image containing these configuration changes;
 use the development stack below to run the local source.
 
+### LiquidFiles email delivery
+
+Configure a dedicated sending account's API key (for example,
+`dicom-anonymizer@inspiremd.com`) and the HTTPS URL of your LiquidFiles server in `.env`:
+
+```dotenv
+LIQUIDFILES_URL=https://files.example.com
+LIQUIDFILES_API_KEY=your-dedicated-account-api-key
+LIQUIDFILES_TIMEOUT_SECONDS=1800
+LIQUIDFILES_EXPIRY_DAYS=7
+```
+
+Restart the application or recreate containers after changing these settings.
+When configured, each batch offers **Download** or **Email via LiquidFiles**.
+Choose email delivery, enter recipients separated by commas or semicolons, then click **Send via LiquidFiles**
+after anonymization. Email mode does not automatically download or send files.
+LiquidFiles emails a secure download link, not a regular email attachment.
+Messages expire after the configured number of days and only the specified
+recipients can access them. All addresses are validated before uploading, duplicate
+addresses are removed, and one LiquidFiles message is sent to the recipient list.
+Multiple files are sent as a ZIP preserving folders.
+
+Sending requires SSO to authorize access to the app. LiquidFiles messages are sent
+by the account owning the configured API key, not the signed-in SSO user. The app
+omits the message `sender` override, so send-as delegation is not required. A sender
+supplied by the browser is ignored. No separate sender email setting is needed.
+
+The API key stays on the server, and file uploads are streamed rather than loaded
+into memory. HTTPS certificate verification is enabled. The server must permit
+the API account to upload and email the intended recipients; its own size,
+expiration, and recipient policies still apply. If a send times out, check the
+LiquidFiles message history before retrying to avoid duplicate delivery. Sending
+is available only for output batches created in the current browser session.
+Anonymous deployments can still download outputs, but cannot send via LiquidFiles.
+
 ## Development with Docker
 
 The development stack builds the local Dockerfile, mounts the source tree, and runs Flask in debug mode:

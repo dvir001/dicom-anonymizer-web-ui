@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DICOM Anonymizer</title>
+    {% if favicon_url %}
+    <link rel="icon" href="{{ favicon_url }}">
+    {% endif %}
     <style>
         * {
             box-sizing: border-box;
@@ -868,6 +871,8 @@
             </div>
         </div>
 
+        <div id="diskSpaceWarning" class="status warning hidden" role="status" aria-live="polite"></div>
+
         <div id="aboutModal" class="info-modal hidden">
             <div class="info-modal-content">
                 <h4>📋 About DICOM Anonymizer</h4>
@@ -879,12 +884,13 @@
                             <li>Everything - Comprehensive DICOM anonymization following industry standards</li>
                         </ul>
                     </li>
-                    <li><strong>File Support:</strong> Accepts any file type (up to 3GB per session) - DICOM files are automatically detected by content</li>
-                    <li><strong>ZIP, 7z, and RAR Archives:</strong> Automatically extracts and processes archived DICOM files</li>
+                    <li><strong>File Support:</strong> Uploads up to {{ '%g' | format(upload_limit_gb) }} GB - DICOM files are detected by content; unrelated files are excluded</li>
+                    <li><strong>ZIP, 7z, and RAR Archives:</strong> Up to {{ '%g' | format(archive_limit_gb) }} GB extracted and {{ '{:,}'.format(archive_entry_limit) }} entries per archive</li>
                     <li><strong>Batch Processing:</strong> Upload multiple files at once, add more before processing</li>
                     <li><strong>Structure Preservation:</strong> Maintains original folder hierarchy in anonymized output</li>
-                    <li><strong>Auto-Cleanup:</strong> Files are automatically deleted after 30 minutes</li>
-                    <li><strong>Storage Management:</strong> 20GB total storage with automatic space management</li>
+                    <li><strong>Delivery:</strong> Download anonymized files or use optional LiquidFiles email delivery to multiple recipients. Secure links are sent by the dedicated API account; sending requires SSO</li>
+                    <li><strong>Auto-Cleanup:</strong> Temporary files are eligible for deletion after {{ file_retention_minutes }} minutes of session inactivity</li>
+                    <li><strong>Storage Management:</strong> {{ '%g' | format(total_storage_gib) }} GiB temporary storage budget with automatic space management, subject to available disk space</li>
                 </ul>
                 <div class="info-modal-close">
                     <button type="button" class="btn secondary" id="aboutCloseButton">Close</button>
@@ -969,7 +975,9 @@
             'existingSessions': existing_sessions,
             'userDisplayName': user_display_name,
             'azureConfigured': azure_configured,
-            'loginFailed': login_failed
+            'loginFailed': login_failed,
+            'liquidfilesConfigured': liquidfiles_configured,
+            'liquidfilesTimeoutSeconds': liquidfiles_timeout_seconds
         } | tojson }}
     </script>
 
@@ -1283,6 +1291,7 @@
         }
 
         function resetTabContent(tabContent, tabId) {
+            document.getElementById(`deliveryControls-${tabId}`)?.remove();
             // Hide all sections except upload area
             const batchInfo = tabContent.querySelector(`#batchInfo-${tabId}`);
             const fileList = tabContent.querySelector(`#fileList-${tabId}`);
@@ -1394,6 +1403,7 @@
         }
 
         function setupTabEventHandlers(tabId) {
+            setupDeliveryControls(tabId);
             const uploadArea = document.getElementById(`uploadArea-${tabId}`);
             if (!uploadArea) {
                 return;
@@ -2345,6 +2355,113 @@
             tabStates[tabId].uploadEnabled = false;
         }
 
+        function setupDeliveryControls(tabId) {
+            if (!appConfig.liquidfilesConfigured || document.getElementById(`deliveryControls-${tabId}`)) return;
+            const controls = document.createElement('div');
+            controls.id = `deliveryControls-${tabId}`;
+            controls.style.cssText = 'display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:10px;font-size:0.9em;';
+            controls.innerHTML = `
+                <strong>Delivery:</strong>
+                <label><input type="radio" name="delivery-${tabId}" value="download" checked> Download</label>
+                <label><input type="radio" name="delivery-${tabId}" value="email"> Email via LiquidFiles</label>
+                <label id="recipientLabel-${tabId}" class="hidden" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0;">
+                    Recipients
+                    <input id="recipientEmail-${tabId}" type="email" multiple autocomplete="email" placeholder="alice@example.com, bob@example.com" style="padding:8px;border:1px solid #adb5bd;border-radius:4px;width:320px;max-width:100%;box-sizing:border-box;">
+                </label>
+                <button type="button" id="sendEmailBtn-${tabId}" class="btn hidden" style="margin:0;padding:8px 16px;">&#9993; Send via LiquidFiles</button>
+            `;
+            document.getElementById(`optionsCard-${tabId}`).after(controls);
+            const update = () => {
+                const emailMode = controls.querySelector('input[value="email"]').checked;
+                document.getElementById(`recipientLabel-${tabId}`).classList.toggle('hidden', !emailMode);
+                document.getElementById(`sendEmailBtn-${tabId}`).classList.toggle('hidden', !emailMode || !tabStates[tabId].outputSessionId);
+                document.getElementById(`downloadBtn-${tabId}`).classList.toggle('hidden', emailMode);
+            };
+            controls.querySelectorAll('input[type="radio"]').forEach(input => input.addEventListener('change', update));
+            document.getElementById(`sendEmailBtn-${tabId}`).onclick = () => sendViaLiquidFiles(tabId);
+            update();
+        }
+
+        function emailDeliverySelected(tabId) {
+            return document.querySelector(`input[name="delivery-${tabId}"]:checked`)?.value === 'email';
+        }
+
+        async function sendViaLiquidFiles(tabId) {
+            const state = tabStates[tabId];
+            const recipient = document.getElementById(`recipientEmail-${tabId}`);
+            if (!state?.outputSessionId || state.sendingEmail) return;
+            recipient.value = recipient.value.replace(/;/g, ',').trim();
+            recipient.required = true;
+            if (!recipient.reportValidity()) return;
+            const recipients = [...new Set(recipient.value.split(',').map(email => email.trim()))];
+            const button = document.getElementById(`sendEmailBtn-${tabId}`);
+            const controls = document.getElementById(`deliveryControls-${tabId}`);
+            const outputSessionId = state.outputSessionId;
+            const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)), value => value.toString(16).padStart(2, '0')).join('');
+            const showSent = () => {
+                showStatus(`LiquidFiles sent an email to ${recipients.length} recipient${recipients.length === 1 ? '' : 's'}.`, 'success', tabId);
+                button.textContent = 'Sent';
+            };
+            const reconcileDelivery = async () => {
+                const deadline = Date.now() + (appConfig.liquidfilesTimeoutSeconds + 60) * 1000;
+                try {
+                    while (Date.now() < deadline && tabStates[tabId] === state) {
+                        const response = await fetch(`/liquidfiles-status/${outputSessionId}/${requestId}`, {
+                            headers: {'Accept': 'application/json'}, cache: 'no-store'
+                        });
+                        const status = await response.json();
+                        if (!response.ok) return null;
+                        if (status.status !== 'sending') return status;
+                        showStatus('LiquidFiles is still processing the delivery. Checking status...', 'info', tabId);
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+                } catch (_) {
+                    return null;
+                }
+                return null;
+            };
+            state.sendingEmail = true;
+            controls.querySelectorAll('input, button').forEach(input => input.disabled = true);
+            button.textContent = 'Sending...';
+            showStatus('Sending anonymized files via LiquidFiles...', 'info', tabId);
+            try {
+                const response = await fetch(`/send-liquidfiles/${outputSessionId}`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                    body: JSON.stringify({recipients, request_id: requestId})
+                });
+                const result = await response.json().catch(() => null);
+                if (response.status === 401) {
+                    lockInterface('Session expired. Sign in before sending files.');
+                    return;
+                }
+                if (!response.ok || !result?.success) {
+                    throw new Error(result?.error || `The server returned an unexpected response (HTTP ${response.status}).`);
+                }
+                if (tabStates[tabId] !== state) return;
+                showSent();
+            } catch (error) {
+                const delivery = await reconcileDelivery();
+                if (tabStates[tabId] !== state) return;
+                if (delivery?.status === 'sent') {
+                    showSent();
+                } else if (delivery?.status === 'failed') {
+                    showStatus(delivery.error || error.message, 'error', tabId);
+                    button.textContent = 'Send via LiquidFiles';
+                } else {
+                    showStatus('Delivery is unconfirmed. The email may already have been sent. Check LiquidFiles message history before sending again.', 'warning', tabId);
+                    button.textContent = 'Delivery unconfirmed';
+                }
+            } finally {
+                state.sendingEmail = false;
+                controls.querySelectorAll('input, button').forEach(input => input.disabled = false);
+                button.disabled = button.textContent === 'Sent' || button.textContent === 'Delivery unconfirmed';
+                recipient.oninput = () => {
+                    button.disabled = false;
+                    button.textContent = 'Send via LiquidFiles';
+                };
+            }
+        }
+
         async function startAnonymization(tabId) {
             const state = tabStates[tabId];
             
@@ -2438,10 +2555,20 @@
             document.getElementById(`optionsCard-${tabId}`).classList.add('hidden');
             document.getElementById(`resultsCard-${tabId}`).classList.remove('hidden');
 
-            // Auto-download if auto-run is enabled
+            const emailMode = emailDeliverySelected(tabId);
+            const sendEmailBtn = document.getElementById(`sendEmailBtn-${tabId}`);
+            if (sendEmailBtn) sendEmailBtn.classList.toggle('hidden', !emailMode);
+            downloadBtn.classList.toggle('hidden', emailMode);
+
             const autoRunCheckbox = document.getElementById(`autoRun-${tabId}`);
-            if (autoRunCheckbox && autoRunCheckbox.checked) {
+            if (autoRunCheckbox && autoRunCheckbox.checked && emailMode) {
+                const recipient = document.getElementById(`recipientEmail-${tabId}`);
+                if (recipient?.value.trim()) {
+                    sendViaLiquidFiles(tabId);
+                }
+            } else if (autoRunCheckbox && autoRunCheckbox.checked) {
                 setTimeout(() => {
+                    if (emailDeliverySelected(tabId)) return;
                     downloadAnonymizedFiles(tabId);
                     const span = resultsStatus.querySelector('span');
                     if (span) {
@@ -2577,10 +2704,41 @@
             switchTab('tab-1');
         }
 
+        async function refreshDiskSpaceWarning() {
+            const warning = document.getElementById('diskSpaceWarning');
+            if (!appConfig.authenticated) {
+                warning.classList.add('hidden');
+                return;
+            }
+            try {
+                const response = await fetch('/api/storage', {
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout(10000)
+                });
+                if (response.status === 401) {
+                    warning.classList.add('hidden');
+                    return;
+                }
+                if (!response.ok) {
+                    throw new Error('Disk status unavailable');
+                }
+                const disk = await response.json();
+                warning.textContent = disk.low_space
+                    ? `Server disk space is low: ${formatFileSize(disk.free_bytes)} free (${disk.free_percent.toFixed(1)}%). Uploads, anonymization, and downloads may fail. Contact your administrator.`
+                    : '';
+                warning.classList.toggle('hidden', !disk.low_space);
+            } catch (error) {
+                warning.textContent = 'Server disk status unavailable. Contact your administrator if uploads or downloads fail.';
+                warning.classList.remove('hidden');
+            }
+        }
+
         // Initialize first tab on page load
         window.addEventListener('load', () => {
             setupTabEventHandlers('tab-1');
             restoreExistingSessions(appConfig.existingSessions);
+            refreshDiskSpaceWarning();
+            setInterval(refreshDiskSpaceWarning, 60000);
         });
     </script>
 </body>

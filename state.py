@@ -206,6 +206,22 @@ def clear_assembly_progress(upload_id: str) -> None:
     get_redis().delete(_progress_key(upload_id))
 
 
+def claim_liquidfiles_delivery(session_id: str, request_id: str, ttl: int) -> bool:
+    return bool(get_redis().set(
+        f'{_PREFIX}delivery:{session_id}:{request_id}',
+        json.dumps({'status': 'sending'}), nx=True, ex=ttl
+    ))
+
+
+def set_liquidfiles_delivery(session_id: str, request_id: str, status: dict, ttl: int) -> None:
+    get_redis().setex(f'{_PREFIX}delivery:{session_id}:{request_id}', ttl, json.dumps(status))
+
+
+def get_liquidfiles_delivery(session_id: str, request_id: str) -> dict | None:
+    raw = get_redis().get(f'{_PREFIX}delivery:{session_id}:{request_id}')
+    return json.loads(raw) if raw else None
+
+
 # ---------------------------------------------------------------------------
 # Name mapping cache (consistent anonymization)
 # ---------------------------------------------------------------------------

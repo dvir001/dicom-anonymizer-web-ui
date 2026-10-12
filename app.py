@@ -36,10 +36,16 @@ from functools import wraps
 from dotenv import load_dotenv
 from pathlib import Path
 import msal
+import requests
 import state as shared_state
 
 # Load environment variables
 load_dotenv()
+
+LIQUIDFILES_URL = os.getenv('LIQUIDFILES_URL', '').strip().rstrip('/')
+LIQUIDFILES_API_KEY = os.getenv('LIQUIDFILES_API_KEY', '').strip()
+LIQUIDFILES_TIMEOUT_SECONDS = int(os.getenv('LIQUIDFILES_TIMEOUT_SECONDS', '1800'))
+LIQUIDFILES_EXPIRY_DAYS = int(os.getenv('LIQUIDFILES_EXPIRY_DAYS', '7'))
 
 _default_log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
 if not logging.getLogger().handlers:
@@ -63,7 +69,7 @@ elif len(_secret_key) < 32:
     logger.warning("SECRET_KEY is shorter than 32 characters; consider using a 64-character random string")
 
 app.config['SECRET_KEY'] = _secret_key
-app.config['MAX_CONTENT_LENGTH'] = 3 * 1024 * 1024 * 1024  # 3GB max file size
+app.config['MAX_CONTENT_LENGTH'] = int(float(os.getenv('MAX_CONTENT_LENGTH_GB', '3')) * 1_000_000_000)
 
 # Session cookie security hardening
 app.config['SESSION_COOKIE_HTTPONLY'] = True      # Prevent JavaScript access to session cookie
@@ -382,8 +388,8 @@ def allowed_file(filename):
     return True
 
 
-MAX_ARCHIVE_ENTRIES = 10000
-MAX_ARCHIVE_EXTRACTED_SIZE = 1024 * 1024 * 1024
+MAX_ARCHIVE_ENTRIES = int(os.getenv('MAX_ARCHIVE_ENTRIES', '10000'))
+MAX_ARCHIVE_EXTRACTED_SIZE = int(float(os.getenv('MAX_ARCHIVE_EXTRACTED_SIZE_GB', '1')) * 1_000_000_000)
 
 
 class ArchiveValidationError(ValueError):
@@ -933,6 +939,28 @@ def keepalive():
     return jsonify({'ok': True, 'remaining_seconds': remaining_seconds})
 
 
+@app.route('/api/storage')
+@login_required
+def storage_status():
+    disks = []
+    try:
+        for folder in ('UPLOAD_FOLDER', 'OUTPUT_FOLDER', 'CHUNK_FOLDER'):
+            usage = shutil.disk_usage(app.config[folder])
+            free_percent = usage.free / usage.total * 100
+            disks.append({
+                'free_bytes': usage.free,
+                'total_bytes': usage.total,
+                'free_percent': free_percent,
+                'low_space': free_percent < 5 or usage.free < 3 * 1024 ** 3
+            })
+    except OSError:
+        logger.exception("Failed to check working filesystem disk space")
+        return jsonify({'error': 'Server disk status unavailable.'}), 503, {'Cache-Control': 'no-store'}
+
+    disk = min(disks, key=lambda entry: (not entry['low_space'], entry['free_bytes']))
+    return jsonify(disk), 200, {'Cache-Control': 'no-store'}
+
+
 @app.route('/health')
 def health_check():
     """Health check endpoint for container monitoring and load balancer checks."""
@@ -1021,7 +1049,15 @@ def index():
         existing_sessions=existing_sessions,
         user_display_name=user_display_name,
         azure_configured=azure_configured,
-        login_failed=login_failed
+        login_failed=login_failed,
+        favicon_url=os.getenv('FAVICON_URL', '').strip(),
+        upload_limit_gb=app.config['MAX_CONTENT_LENGTH'] / 1_000_000_000,
+        archive_limit_gb=MAX_ARCHIVE_EXTRACTED_SIZE / 1_000_000_000,
+        archive_entry_limit=MAX_ARCHIVE_ENTRIES,
+        file_retention_minutes=SESSION_TIMEOUT_MINUTES_FILE,
+        total_storage_gib=MAX_TOTAL_STORAGE / (1024 ** 3),
+        liquidfiles_timeout_seconds=LIQUIDFILES_TIMEOUT_SECONDS,
+        liquidfiles_configured=bool(LIQUIDFILES_URL and LIQUIDFILES_API_KEY and azure_configured and is_authenticated)
     )
 
 
@@ -1092,7 +1128,7 @@ def auth_callback():
     # Authentication succeeded — set up the session
     id_token_claims = result.get('id_token_claims', {})
     user_name = id_token_claims.get('name', id_token_claims.get('preferred_username', 'User'))
-    user_email = id_token_claims.get('preferred_username', '')
+    user_email = id_token_claims.get('email') or id_token_claims.get('preferred_username', '')
     user_oid = id_token_claims.get('oid', '')
 
     session['authenticated'] = True
@@ -1817,6 +1853,7 @@ def anonymize_files():
         if not anonymized_files:
             return jsonify({'error': 'No DICOM files found to anonymize'}), 400
         
+        session['output_sessions'] = session.get('output_sessions', []) + [output_session_id]
         return jsonify({
             'success': True,
             'output_session_id': output_session_id,
@@ -1833,83 +1870,182 @@ def anonymize_files():
         }), 500
 
 
+def _prepare_output_download(session_id):
+    output_dir = os.path.join(app.config['OUTPUT_FOLDER'], session_id)
+    if not os.path.isdir(output_dir):
+        raise FileNotFoundError('Session not found or files have expired. Please re-anonymize.')
+    _record_session_activity(session_id)
+
+    all_files = []
+    for root, dirs, files in os.walk(output_dir):
+        for file in files:
+            all_files.append(os.path.join(root, file))
+
+    if not all_files:
+        raise FileNotFoundError('No files found for download')
+    if len(all_files) == 1:
+        return all_files[0], os.path.basename(all_files[0]), 'application/octet-stream'
+
+    zip_path = os.path.join(app.config['OUTPUT_FOLDER'], f'{session_id}_anonymized.zip')
+    needs_rebuild = True
+    if os.path.exists(zip_path):
+        try:
+            zip_mtime = os.path.getmtime(zip_path)
+            latest_source_mtime = max(os.path.getmtime(fp) for fp in all_files)
+            if zip_mtime >= latest_source_mtime:
+                expected_entries = {
+                    os.path.relpath(fp, output_dir).replace(os.sep, '/'): os.path.getsize(fp)
+                    for fp in all_files
+                }
+                with zipfile.ZipFile(zip_path) as cached_zip:
+                    entries = cached_zip.infolist()
+                    needs_rebuild = (
+                        len(entries) != len(expected_entries)
+                        or {entry.filename: entry.file_size for entry in entries} != expected_entries
+                    )
+        except (OSError, zipfile.BadZipFile):
+            needs_rebuild = True
+
+    if needs_rebuild:
+        compression_kwargs = {}
+        if ZIP_COMPRESSLEVEL is not None and ZIP_COMPRESSION == zipfile.ZIP_DEFLATED:
+            compression_kwargs['compresslevel'] = ZIP_COMPRESSLEVEL
+
+        temp_fd, temp_zip_path = tempfile.mkstemp(
+            prefix=f'{session_id}_', suffix='.tmp', dir=app.config['OUTPUT_FOLDER']
+        )
+        os.close(temp_fd)
+        try:
+            with zipfile.ZipFile(temp_zip_path, 'w', ZIP_COMPRESSION, **compression_kwargs) as zipf:
+                for file_path in all_files:
+                    arc_path = os.path.relpath(file_path, output_dir)
+                    zipf.write(file_path, arc_path)
+            os.replace(temp_zip_path, zip_path)
+        finally:
+            if os.path.exists(temp_zip_path):
+                os.remove(temp_zip_path)
+
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
+    return zip_path, f'{timestamp}-dicom.zip', 'application/zip'
+
+
 @app.route('/download/<session_id>')
 @login_required
 def download_anonymized(session_id):
-    """
-    Download anonymized files. Single files are served directly,
-    multiple files are packaged in a ZIP archive.
-    """
-    if not re.match(r'^[a-f0-9]{32}$', session_id):
+    if not re.fullmatch(r'[a-f0-9]{32}', session_id):
         return jsonify({'error': 'Invalid session ID format'}), 400
-
-    output_dir = os.path.join(app.config['OUTPUT_FOLDER'], session_id)
-    
-    if not os.path.exists(output_dir):
-        return jsonify({'error': 'Session not found or files have expired. Please re-anonymize.'}), 404
-
-    # Refresh the session timestamp so the cleanup thread doesn't
-    # delete the files while the user is still downloading.
-    _record_session_activity(session_id)
-    
     try:
-        # Collect all files in the output directory
-        all_files = []
-        for root, dirs, files in os.walk(output_dir):
-            for file in files:
-                file_path = os.path.join(root, file)
-                all_files.append(file_path)
-        
-        if len(all_files) == 0:
-            return jsonify({'error': 'No files found for download'}), 404
-        elif len(all_files) == 1:
-            # Single file - serve directly without zipping
-            single_file = all_files[0]
-            download_filename = os.path.basename(single_file)
-
-            return send_file(
-                single_file,
-                as_attachment=True,
-                download_name=download_filename,
-                mimetype='application/octet-stream'
-            )
-        else:
-            # Multiple files - create ZIP archive
-            zip_path = os.path.join(app.config['OUTPUT_FOLDER'], f'{session_id}_anonymized.zip')
-            needs_rebuild = True
-            if os.path.exists(zip_path):
-                try:
-                    zip_mtime = os.path.getmtime(zip_path)
-                    latest_source_mtime = max(os.path.getmtime(fp) for fp in all_files)
-                    if zip_mtime >= latest_source_mtime:
-                        needs_rebuild = False
-                except OSError:
-                    needs_rebuild = True
-
-            if needs_rebuild:
-                compression_kwargs = {}
-                if ZIP_COMPRESSLEVEL is not None and ZIP_COMPRESSION == zipfile.ZIP_DEFLATED:
-                    compression_kwargs['compresslevel'] = ZIP_COMPRESSLEVEL
-
-                with zipfile.ZipFile(zip_path, 'w', ZIP_COMPRESSION, **compression_kwargs) as zipf:
-                    for file_path in all_files:
-                        arc_path = os.path.relpath(file_path, output_dir)
-                        zipf.write(file_path, arc_path)
-
-            timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
-            download_name = f'{timestamp}-dicom.zip'
-
-            return send_file(
-                zip_path,
-                as_attachment=True,
-                download_name=download_name,
-                mimetype='application/zip',
-                conditional=True,
-                max_age=0
-            )
-        
+        file_path, filename, mimetype = _prepare_output_download(session_id)
+        return send_file(
+            file_path, as_attachment=True, download_name=filename,
+            mimetype=mimetype, conditional=True, max_age=0
+        )
+    except FileNotFoundError as exc:
+        return jsonify({'error': str(exc)}), 404
     except Exception as e:
+        logger.exception("Download failed for session %s", session_id)
         return jsonify({'error': f'Download failed: {str(e)}'}), 500
+
+
+@app.route('/send-liquidfiles/<session_id>', methods=['POST'])
+@login_required
+def send_liquidfiles(session_id):
+    if not LIQUIDFILES_URL or not LIQUIDFILES_API_KEY:
+        return jsonify({'error': 'LiquidFiles is not configured.'}), 503
+    if not LIQUIDFILES_URL.startswith('https://'):
+        return jsonify({'error': 'LiquidFiles requires an HTTPS server URL.'}), 503
+    if not AZURE_CLIENT_ID or not AZURE_TENANT_ID or not _current_session_state()[0]:
+        return jsonify({'error': 'Sign in with SSO to send files via LiquidFiles.'}), 401
+    email_pattern = r'[A-Za-z0-9.!#$%&\'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}'
+    if not re.fullmatch(r'[a-f0-9]{32}', session_id):
+        return jsonify({'error': 'Invalid session ID format'}), 400
+    if session_id not in session.get('output_sessions', []):
+        return jsonify({'error': 'You cannot send this output batch.'}), 403
+    data = request.get_json(silent=True)
+    recipients = data.get('recipients', [data.get('email')]) if isinstance(data, dict) else None
+    if not isinstance(recipients, list) or not recipients:
+        return jsonify({'error': 'Enter at least one valid recipient email address.'}), 400
+    for email in recipients:
+        if not isinstance(email, str) or len(email.strip()) > 254 or not re.fullmatch(email_pattern, email.strip()):
+            return jsonify({'error': 'Every recipient must be a valid email address.'}), 400
+    recipients = list(dict.fromkeys(email.strip() for email in recipients))
+    request_id = data.get('request_id', secrets.token_hex(16))
+    if not isinstance(request_id, str) or not re.fullmatch(r'[a-f0-9]{32}', request_id):
+        return jsonify({'error': 'Invalid delivery request ID.'}), 400
+    delivery_ttl = max(86400, LIQUIDFILES_TIMEOUT_SECONDS * 2)
+
+    def delivery_response(payload, status_code=200):
+        status = 'sent' if payload.get('success') else 'unconfirmed' if status_code in (502, 504) else 'failed'
+        shared_state.set_liquidfiles_delivery(
+            session_id, request_id, {'status': status, 'error': payload.get('error')}, delivery_ttl
+        )
+        return jsonify(payload), status_code
+
+    try:
+        if not shared_state.claim_liquidfiles_delivery(session_id, request_id, delivery_ttl):
+            existing = shared_state.get_liquidfiles_delivery(session_id, request_id)
+            if existing and existing['status'] == 'sent':
+                return jsonify({'success': True})
+            return jsonify({'error': 'This delivery request has already started. Check its status before retrying.'}), 409
+        file_path, filename, mimetype = _prepare_output_download(session_id)
+        with requests.Session() as client:
+            client.auth = (LIQUIDFILES_API_KEY, 'x')
+            client.headers.update({'Accept': 'application/json'})
+            with open(file_path, 'rb') as output_file:
+                upload = client.post(
+                    f'{LIQUIDFILES_URL}/message/attachments/upload',
+                    params={'filename': filename}, data=output_file,
+                    headers={'Content-Type': mimetype},
+                    timeout=(10, LIQUIDFILES_TIMEOUT_SECONDS), allow_redirects=False
+                )
+                upload.raise_for_status()
+                attachment_id = upload.json()['attachment']['id']
+                if not isinstance(attachment_id, str) or not attachment_id:
+                    raise ValueError('Invalid attachment response')
+            _record_session_activity(session_id)
+            expires_at = datetime.date.today() + datetime.timedelta(days=LIQUIDFILES_EXPIRY_DAYS)
+            sent = client.post(
+                f'{LIQUIDFILES_URL}/message',
+                json={'message': {
+                    'recipients': recipients, 'subject': 'Anonymized DICOM files',
+                    'message': 'Your anonymized DICOM files are available securely through LiquidFiles.',
+                    'attachments': [attachment_id], 'send_email': True,
+                    'authorization': 3, 'expires_at': expires_at.isoformat()
+                }},
+                timeout=(10, LIQUIDFILES_TIMEOUT_SECONDS), allow_redirects=False
+            )
+            sent.raise_for_status()
+            if not sent.json()['message']['id']:
+                raise ValueError('Invalid message response')
+        return delivery_response({'success': True})
+    except FileNotFoundError as exc:
+        return delivery_response({'error': str(exc)}, 404)
+    except requests.Timeout:
+        return delivery_response({'error': 'LiquidFiles timed out. Delivery is unconfirmed; check LiquidFiles before retrying.'}, 504)
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        logger.warning('LiquidFiles delivery failed for output batch %s', session_id)
+        return delivery_response({'error': 'LiquidFiles delivery failed. Check the server configuration and LiquidFiles message history before retrying.'}, 502)
+    except OSError:
+        logger.warning('Could not prepare output batch %s for LiquidFiles', session_id)
+        return delivery_response({'error': 'Could not prepare files for sending. Please try again.'}, 500)
+    except shared_state.redis.RedisError:
+        return jsonify({'error': 'Delivery status is unavailable. Check LiquidFiles before retrying.'}), 503
+
+
+@app.route('/liquidfiles-status/<session_id>/<request_id>')
+@login_required
+def liquidfiles_delivery_status(session_id, request_id):
+    if not re.fullmatch(r'[a-f0-9]{32}', session_id) or not re.fullmatch(r'[a-f0-9]{32}', request_id):
+        return jsonify({'error': 'Invalid delivery request ID.'}), 400
+    if session_id not in session.get('output_sessions', []):
+        return jsonify({'error': 'You cannot access this output batch.'}), 403
+    try:
+        status = shared_state.get_liquidfiles_delivery(session_id, request_id)
+        response = jsonify(status or {'status': 'unknown'})
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except shared_state.redis.RedisError:
+        return jsonify({'error': 'Delivery status is unavailable.'}), 503
 
 
 @app.route('/cleanup/<session_id>')

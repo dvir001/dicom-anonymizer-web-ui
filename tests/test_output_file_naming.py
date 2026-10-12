@@ -178,6 +178,18 @@ def test_download_rebuilds_invalid_cached_zip(download_batch, invalid_cache):
 @pytest.fixture
 def liquidfiles_batch(download_batch, monkeypatch):
     client, session_id, output_root = download_batch
+    deliveries = {}
+
+    def claim_delivery(batch_id, request_id, ttl):
+        key = (batch_id, request_id)
+        if key in deliveries:
+            return False
+        deliveries[key] = {'status': 'sending'}
+        return True
+
+    monkeypatch.setattr('app.shared_state.claim_liquidfiles_delivery', claim_delivery)
+    monkeypatch.setattr('app.shared_state.set_liquidfiles_delivery', lambda batch_id, request_id, status, ttl: deliveries.update({(batch_id, request_id): status}))
+    monkeypatch.setattr('app.shared_state.get_liquidfiles_delivery', lambda batch_id, request_id: deliveries.get((batch_id, request_id)))
     monkeypatch.setattr('app.LIQUIDFILES_URL', 'https://files.example.com')
     monkeypatch.setattr('app.LIQUIDFILES_API_KEY', 'test-secret')
     monkeypatch.setattr('app.AZURE_CLIENT_ID', 'client-id')
@@ -308,8 +320,20 @@ def test_liquidfiles_sends_multiple_recipients(liquidfiles_batch, monkeypatch):
     monkeypatch.setattr('app.requests.Session.post', post)
     response = client.post(f'/send-liquidfiles/{session_id}', json={
         'recipients': ['alice@example.com', ' bob@example.com ', 'alice@example.com'],
+        'request_id': 'c' * 32,
     })
     assert response.status_code == 200
+    assert len(calls) == 2
+    status = client.get(f'/liquidfiles-status/{session_id}/{"c" * 32}')
+    assert status.status_code == 200
+    assert status.json['status'] == 'sent'
+    assert status.headers['Cache-Control'] == 'no-store'
+    replay = client.post(f'/send-liquidfiles/{session_id}', json={
+        'recipients': ['alice@example.com', 'bob@example.com'],
+        'request_id': 'c' * 32,
+    })
+    assert replay.status_code == 200
+    assert replay.json == {'success': True}
     assert len(calls) == 2
 
 
@@ -360,3 +384,50 @@ def test_liquidfiles_streams_single_file_without_zip(liquidfiles_batch, monkeypa
     assert response.status_code == 200
     assert len(calls) == 2
     assert not list(output_root.glob('*.zip'))
+
+
+def test_liquidfiles_status_rejects_unowned_batch(liquidfiles_batch):
+    client, session_id, _ = liquidfiles_batch
+    with client.session_transaction() as browser_session:
+        browser_session['output_sessions'] = []
+    response = client.get(f'/liquidfiles-status/{session_id}/{"c" * 32}')
+    assert response.status_code == 403
+
+
+def test_liquidfiles_status_reports_unknown_request(liquidfiles_batch):
+    client, session_id, _ = liquidfiles_batch
+    response = client.get(f'/liquidfiles-status/{session_id}/{"c" * 32}')
+    assert response.status_code == 200
+    assert response.json == {'status': 'unknown'}
+
+
+def test_liquidfiles_rejects_in_progress_replay(liquidfiles_batch, monkeypatch):
+    client, session_id, _ = liquidfiles_batch
+    monkeypatch.setattr('app.shared_state.claim_liquidfiles_delivery', lambda *args: False)
+    monkeypatch.setattr('app.shared_state.get_liquidfiles_delivery', lambda *args: {'status': 'sending'})
+
+    def unexpected_post(*args, **kwargs):
+        pytest.fail('Replaying a running delivery must not resend files')
+
+    monkeypatch.setattr('app.requests.Session.post', unexpected_post)
+    response = client.post(f'/send-liquidfiles/{session_id}', json={
+        'recipients': ['alice@example.com'], 'request_id': 'c' * 32,
+    })
+    assert response.status_code == 409
+
+
+def test_liquidfiles_stops_before_sending_if_status_storage_is_unavailable(liquidfiles_batch, monkeypatch):
+    import state
+
+    client, session_id, _ = liquidfiles_batch
+
+    def unavailable(*args):
+        raise state.redis.ConnectionError('Unavailable')
+
+    def unexpected_post(*args, **kwargs):
+        pytest.fail('Sending must not start without delivery tracking')
+
+    monkeypatch.setattr('app.shared_state.claim_liquidfiles_delivery', unavailable)
+    monkeypatch.setattr('app.requests.Session.post', unexpected_post)
+    response = client.post(f'/send-liquidfiles/{session_id}', json={'recipients': ['alice@example.com']})
+    assert response.status_code == 503

@@ -67,7 +67,7 @@ Dicom fields are separated into different groups. Each group will be anonymized 
 
 ## Optional configuration
 
-The default Compose file works without configuration and allows anonymous access. To change the port or enable SSO, copy the small example file:
+The default Compose file works without configuration and allows anonymous access. To change the port, upload limits, or enable SSO, copy the small example file:
 
 ```bash
 cp .env.example .env
@@ -80,6 +80,80 @@ python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 Without a configured `SECRET_KEY`, the application generates a secure temporary key at startup. This is convenient for local use, but active browser sessions end when the container restarts.
+
+Set `FAVICON_URL` in `.env` to use a custom site icon:
+
+```dotenv
+FAVICON_URL=https://example.com/favicon.ico
+```
+
+The browser loads this URL directly, so it must be accessible to your users.
+Use HTTPS when serving the app over HTTPS. Leave it unset to omit the custom icon.
+Restart the app or recreate containers after changing `.env`.
+
+### Larger uploads and archives
+
+The `.env.example` file enables 10 GB uploads and extracted archives when copied
+to `.env`. Sizes are in GB (1 GB = 1,000,000,000 bytes), with decimals such as
+`2.5` supported. The extracted limit applies to the total uncompressed contents
+of each archive:
+
+```dotenv
+MAX_CONTENT_LENGTH_GB=10
+MAX_ARCHIVE_EXTRACTED_SIZE_GB=10
+MAX_ARCHIVE_ENTRIES=10000
+```
+
+Without overrides, defaults are 3 GB for uploads, 1 GB extracted per archive,
+and 10,000 entries per archive. Increase the entry count only if needed. Keep
+finite limits to protect against decompression bombs, and provide disk space for
+uploaded archives, extracted contents, and anonymized outputs.
+
+Both Compose files pass these values to the application; local runs load `.env`
+automatically. Recreate containers with `docker compose up -d --force-recreate`
+after changing `.env`, or restart the application when running without Docker.
+The production stack needs an updated image containing these configuration changes;
+use the development stack below to run the local source.
+
+### LiquidFiles email delivery
+
+Configure a dedicated sending account's API key (for example,
+`dicom-anonymizer@inspiremd.com`) and the HTTPS URL of your LiquidFiles server in `.env`:
+
+```dotenv
+LIQUIDFILES_URL=https://files.example.com
+LIQUIDFILES_API_KEY=your-dedicated-account-api-key
+LIQUIDFILES_TIMEOUT_SECONDS=1800
+LIQUIDFILES_EXPIRY_DAYS=7
+```
+
+Restart the application or recreate containers after changing these settings.
+When configured, each batch offers **Download** or **Email via LiquidFiles**.
+Choose email delivery, enter recipients separated by commas or semicolons, then click **Send via LiquidFiles**
+after anonymization. With **Auto run on upload** enabled, email delivery sends
+automatically after anonymization when recipients are entered. Invalid addresses
+block sending; an empty recipient field leaves sending manual. Email mode does
+not automatically download files. Disable auto-run to keep email sending manual.
+LiquidFiles emails a secure download link, not a regular email attachment.
+Messages expire after the configured number of days and only the specified
+recipients can access them. All addresses are validated before uploading, duplicate
+addresses are removed, and one LiquidFiles message is sent to the recipient list.
+Multiple files are sent as a ZIP preserving folders.
+
+Sending requires SSO to authorize access to the app. LiquidFiles messages are sent
+by the account owning the configured API key, not the signed-in SSO user. The app
+omits the message `sender` override, so send-as delegation is not required. A sender
+supplied by the browser is ignored. No separate sender email setting is needed.
+
+The API key stays on the server, and file uploads are streamed rather than loaded
+into memory. HTTPS certificate verification is enabled. The server must permit
+the API account to upload and email the intended recipients; its own size,
+expiration, and recipient policies still apply. Send attempts are tracked in Redis.
+If a proxy timeout or unreadable response occurs, the browser checks delivery status
+instead of resending. If delivery remains unconfirmed, check the LiquidFiles message
+history before retrying to avoid duplicate delivery. Sending
+is available only for output batches created in the current browser session.
+Anonymous deployments can still download outputs, but cannot send via LiquidFiles.
 
 ## Development with Docker
 
@@ -120,6 +194,9 @@ The application understands forwarded HTTPS headers. A minimal Nginx location lo
 server {
     location / {
         proxy_pass http://dicom-anonymizer:5000;
+        proxy_buffering off;
+        proxy_read_timeout 1800s;
+        send_timeout 1800s;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -132,6 +209,31 @@ server {
 
 `X-Forwarded-Proto` is required for correct HTTPS redirects.
 
+For large ZIP downloads, `proxy_buffering off` avoids spooling responses to the
+proxy's temporary disk. The timeout settings above allow up to 30 minutes of
+inactivity between reads or writes, not a 30-minute limit on the entire transfer.
+Apply equivalent settings to the live Nginx/OpenResty proxy and reload it after
+validating the configuration with `nginx -t`.
+
+If a download stops partway through, check the proxy error log and application
+container logs at the failure time for upstream timeouts, insufficient disk space,
+worker exits, or container restarts. ZIP downloads support HTTP Range requests for
+resuming while the output session remains available. Output files expire after
+30 minutes by default, so download or retry promptly.
+
+
+## Disk space warning
+
+The site checks available space on the upload, output, and chunk filesystems when
+the page loads and every minute. A persistent warning appears if any has less than
+5% free space or less than 3 GiB available. It clears when space recovers. This is
+an advisory warning, not a guarantee that a batch will fit: archive extraction,
+anonymized copies, and ZIP packaging can require several times the upload size.
+
+The authenticated `/api/storage` endpoint reports actual filesystem capacity,
+including space consumed by other applications on the same disk. In Docker this
+measures the container's working filesystems; it does not inspect unrelated host
+mounts or host disks hidden behind container storage quotas.
 
 # How to build it?
 These instructions rely on wheel build-package format. Install it if you have not done it already using:

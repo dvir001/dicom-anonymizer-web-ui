@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 import zipfile
 
 import py7zr
@@ -93,3 +96,35 @@ def test_extract_archive_supports_rar(tmp_path, monkeypatch):
 def test_archive_entries_reject_path_traversal():
     with pytest.raises(ArchiveValidationError, match="invalid paths"):
         _validate_archive_entries([("../outside.dcm", 10)])
+
+
+def test_limits_can_be_configured_from_environment():
+    result = subprocess.run(
+        [sys.executable, "-c", (
+            "import app\n"
+            "assert app.app.config['MAX_CONTENT_LENGTH'] == 10_000_000_000\n"
+            "assert app.MAX_ARCHIVE_EXTRACTED_SIZE == 2_500_000_000\n"
+            "assert app.MAX_ARCHIVE_ENTRIES == 2\n"
+            "app._validate_archive_entries([('scan.dcm', 2_500_000_000)])\n"
+            "for entries, message in [\n"
+            "    ([('scan.dcm', 2_500_000_001)], 'Archive is too large when extracted'),\n"
+            "    ([('scan.dcm', 0)] * 3, 'Archive contains too many entries'),\n"
+            "]:\n"
+            "    try:\n"
+            "        app._validate_archive_entries(entries)\n"
+            "    except app.ArchiveValidationError as exc:\n"
+            "        assert message in str(exc)\n"
+            "        assert exc.status_code == 413\n"
+            "    else:\n"
+            "        raise AssertionError('Configured archive limit was not enforced')\n"
+        )],
+        env={
+            **os.environ,
+            "MAX_CONTENT_LENGTH_GB": "10",
+            "MAX_ARCHIVE_EXTRACTED_SIZE_GB": "2.5",
+            "MAX_ARCHIVE_ENTRIES": "2",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

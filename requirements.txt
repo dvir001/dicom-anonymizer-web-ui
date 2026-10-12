@@ -8,6 +8,6 @@ rarfile>=4.3,<5.0
 flask-cors>=6.0.5
 gunicorn>=26.2.0
 psutil>=7.2.2
-msal>=1.38.0
+msal>=1.39.0
 redis>=8.1.0
 requests>=2.34.2,<3.0.0
